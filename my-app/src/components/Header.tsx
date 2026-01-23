@@ -10,7 +10,7 @@ interface HeaderProps {
 
 export default function Header({ currentPrice }: HeaderProps) {
   return (
-    <header className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-7xl z-50 bg-[#0A696C] rounded-full">
+    <header className="fixed top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-7xl z-50 bg-[#44cdd757] rounded-full">
       <div className="p-2 flex items-center justify-between">
         <Image src={logo} alt="logo" className='w-[200px] h-[70px]' />
 

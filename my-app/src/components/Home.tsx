@@ -5,19 +5,17 @@ import React from 'react'
 import Image from 'next/image'
 import { useWallet } from '@/context/WalletContext'
 import Header from './Header'
+import BackgroundGrid from './bgGrid'
 
 const Home = () => {
   const { connectWallet, isConnecting } = useWallet()
 
   return (
+    <>
+       <BackgroundGrid />
     <div
       className='fixed inset-0 w-full h-full overflow-hidden'
-      style={{
-        backgroundImage: `url(${grid.src})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
-      }}
+      
     >
       {/* Overlay for better text readability */}
       <div className='absolute inset-0 bg-black/40' />
@@ -43,6 +41,7 @@ const Home = () => {
         </button>
       </div>
     </div>
+  </>
   )
 }
 

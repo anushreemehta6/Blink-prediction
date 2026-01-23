@@ -61,7 +61,7 @@ export default function ConnectWallet() {
       <button
         onClick={connectWallet}
         disabled={isConnecting || !isFlask}
-        className="flex items-center gap-2 bg-gradient-to-r from-[#599BA5] to-[#A1BCBD] text-black  px-4 lg:px-6 py-2.5 lg:py-3 rounded-full font-bold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 disabled:opacity-60 disabled:cursor-wait disabled:scale-100 text-sm lg:text-base mr-4"
+        className="flex items-center gap-2 bg-gradient-to-r from-[#599BA5] to-[#A1BCBD] text-white  px-4 lg:px-6 py-2.5 lg:py-3 rounded-full font-bold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 disabled:opacity-60 disabled:cursor-wait disabled:scale-100 text-sm lg:text-base mr-4"
       >
         {!isFlask ? (
           <>
@@ -160,7 +160,7 @@ export default function ConnectWallet() {
                   navigator.clipboard.writeText(address);
                   toast.success("Address copied!");
                 }}
-                className="text-xs text-black hover:text-blue-600 hover:underline flex items-center gap-1"
+                className="text-xs text-white hover:text-blue-600 hover:underline flex items-center gap-1"
               >
                 Copy Address
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -177,7 +177,7 @@ export default function ConnectWallet() {
               <span className={`font-bold px-3 py-1 rounded-full text-sm ${
                 wrongNetwork 
                   ? 'bg-red-100 text-red-600' 
-                  : 'text-black'
+                  : 'text-white'
               }`}>
                 {wrongNetwork ? (
                   <>⚠️ Chain {formatChainId(chainId)}</>
@@ -194,7 +194,7 @@ export default function ConnectWallet() {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-white">Wallet Type</span>
-              <span className="font-bold text-black text-xs">
+              <span className="font-bold text-white text-xs">
                 {isFlask ? ' MetaMask Flask' : 'MetaMask'}
               </span>
             </div>
@@ -226,7 +226,7 @@ export default function ConnectWallet() {
             
             <button 
               onClick={() => { disconnect(); setShowDropdown(false); }} 
-              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#599BA5] to-[#A1BCBD] text-black py-2.5 rounded-full border border-black transition-all duration-200 font-bold text-sm"
+              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#599BA5] to-[#A1BCBD] text-white py-2.5 rounded-full border border-black transition-all duration-200 font-bold text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
