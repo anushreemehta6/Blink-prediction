@@ -8,6 +8,7 @@ export async function POST(req: NextRequest) {
     const { 
       positionId, 
       address, 
+      asset,         // Passed as 'ETH', 'BTC', etc.
       targetPrice, 
       entryPrice, 
       isUpward, 
@@ -17,33 +18,38 @@ export async function POST(req: NextRequest) {
       status     
     } = body;
 
-   
-    if (!positionId || !address || !amount || !txHash) {
+    // 1. Strict Validation
+    if (!positionId || !address || !amount || !txHash || !asset) {
       return NextResponse.json({ error: 'Missing critical fields' }, { status: 400 });
+    }
+
+    // Ensure we don't save invalid prices
+    if (!entryPrice || parseFloat(entryPrice.toString()) <= 0) {
+      return NextResponse.json({ error: 'Invalid entry price' }, { status: 400 });
     }
 
     await dbConnect();
 
-  
+    // Standardize address
     const cleanAddress = address.replace(/"/g, '').toLowerCase();
 
+    // 2. Create and Save Prediction
     const prediction = new Prediction({
       userWallet: cleanAddress,
+      symbol: asset.toUpperCase(), // Maps 'asset' to 'symbol' in your DB Model
       positionId: Number(positionId),
       targetPrice: targetPrice.toString(),
-      
-      entryPrice: entryPrice ? entryPrice.toString() : '0', 
+      entryPrice: entryPrice.toString(), 
       isUpward: isUpward,
       amount: amount.toString(),
       multiplier: Number(multiplier),
       txHash: txHash,
-   
       status: status || 'OPEN',
       payout: '0'
     });
 
     await prediction.save();
-    console.log(`💾 Prediction Recorded: #${positionId} for ${cleanAddress}`);
+    console.log(`💾 Prediction Recorded: #${positionId} [${asset}] for ${cleanAddress}`);
 
     return NextResponse.json({ 
       success: true, 
@@ -52,7 +58,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error: any) {
-    
+    // Handle MongoDB unique constraint (duplicate positionId)
     if (error.code === 11000) {
       console.warn('⚠️ Duplicate positionId detected, skipping save.');
       return NextResponse.json({ error: 'Duplicate record' }, { status: 409 });

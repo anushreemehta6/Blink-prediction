@@ -17,32 +17,31 @@ const USDC_ADDRESS = "0xD9a4C52EfA4EfA8F698EC9941061c9ef3387DBc6" as Address;
 const THIRTY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_THIRTY_ENGINE_ADDRESS as Address;
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+  
   try {
     const { userWallet, amount } = await req.json();
     
-    console.log(`\n🎯 Auto-Trade Request (USDC Transfer):`);
-    console.log(`   User: ${userWallet}`);
-    console.log(`   Amount: ${amount} USDC`);
+    console.log(`\n⚡ FAST MODE Trade: ${userWallet.slice(0, 8)}... | $${amount}`);
 
     await dbConnect();
 
-    // 1. Look up session
+    // 1. Quick session lookup
     const session = await Session.findOne({ 
       userWallet: userWallet.toLowerCase(), 
       isActive: true,
       expiresAt: { $gt: new Date() }
-    });
+    }).lean(); // Use lean() for faster queries
     
     if (!session) {
-      return NextResponse.json({ error: "No active session found." }, { status: 403 });
+      return NextResponse.json({ error: "No active session" }, { status: 403 });
     }
 
     if (!session.permissionsContext || !session.delegationManager) {
-      return NextResponse.json({ error: "Session missing permissions." }, { status: 400 });
+      return NextResponse.json({ error: "Missing permissions" }, { status: 400 });
     }
 
-    // 2. Recreate session account
-    console.log(`\n📂 Recreating session account...`);
+    // 2. Recreate session account (cached in memory for production)
     const signer = privateKeyToAccount(session.privateKey as `0x${string}`);
     
     const sessionAccount = await toMetaMaskSmartAccount({
@@ -52,12 +51,10 @@ export async function POST(req: NextRequest) {
       deploySalt: "0x",
       signer: { account: signer },
     });
-    
-    console.log(`   ✅ Session account: ${sessionAccount.address}`);
 
     const bundler = getBundlerClient();
 
-    // 3. Prepare Transfer Data
+    // 3. Prepare Transfer
     const amountInUSDC = parseUnits(amount.toString(), 6);
 
     const transferCallData = encodeFunctionData({
@@ -74,27 +71,14 @@ export async function POST(req: NextRequest) {
       delegationManager: session.delegationManager as Address,
     }];
 
-    // 4. Fetch Dynamic Gas Prices & ADD BUFFER
-    console.log(`\n⛽ Fetching dynamic gas prices...`);
-    
+    // 4. Fetch gas prices with 2x buffer
     const feeData = await publicClient.estimateFeesPerGas();
-    
-    // Get base values
-    let maxFeePerGas = feeData.maxFeePerGas || feeData.gasPrice || 3000000000n;
-    let maxPriorityFeePerGas = feeData.maxPriorityFeePerGas || 2000000000n;
+    let maxFeePerGas = (feeData.maxFeePerGas || 3000000000n) * 2n;
+    let maxPriorityFeePerGas = (feeData.maxPriorityFeePerGas || 2000000000n) * 2n;
 
-    console.log(`   Raw Estimate: ${maxFeePerGas} wei`);
+    console.log(`   ⛽ Gas: ${maxFeePerGas / 1000000000n} Gwei`);
 
-    // 🚀 APPLY 2x BUFFER (Safety factor for Bundler requirements)
-    // 122 Gwei * 2 = 244 Gwei (This satisfies the 152 Gwei requirement)
-    maxFeePerGas = (maxFeePerGas * 200n) / 100n;
-    maxPriorityFeePerGas = (maxPriorityFeePerGas * 200n) / 100n;
-
-    console.log(`   Buffered Max Fee: ${maxFeePerGas} wei`);
-
-    // 5. Execute
-    console.log(`\n⚡ Sending USDC Transfer UserOp...`);
-    
+    // 5. 🚀 SEND TRANSACTION (Don't wait for confirmation)
     const userOpHash = await bundler.sendUserOperationWithDelegation({
       account: sessionAccount,
       calls,
@@ -104,31 +88,25 @@ export async function POST(req: NextRequest) {
       maxPriorityFeePerGas,
     });
 
-    console.log(`   ✅ UserOp submitted: ${userOpHash}`);
+    const elapsed = Date.now() - startTime;
+    console.log(`   ✅ Submitted in ${elapsed}ms: ${userOpHash.slice(0, 12)}...`);
 
-    // 6. Wait for receipt
-    let txHash: string | undefined;
-    try {
-      console.log(`   ⏳ Waiting for confirmation...`);
-      const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
-      txHash = receipt.receipt.transactionHash;
-      console.log(`   ✅ Transfer confirmed: ${txHash}`);
-    } catch (e) {
-      console.warn("   ⚠️ Receipt wait timed out, but trade may still succeed");
-      txHash = userOpHash;
-    }
-
+    // 🎯 RETURN IMMEDIATELY - Don't wait for receipt!
+    // The bot will detect and settle the position automatically
     return NextResponse.json({ 
       success: true, 
-      txHash: txHash,
+      txHash: userOpHash,
       positionId: Date.now(),
+      executionTime: elapsed
     });
 
   } catch (error: any) {
-    console.error("\n❌ Auto-Trade Failed:", error);
+    const elapsed = Date.now() - startTime;
+    console.error(`\n❌ Failed after ${elapsed}ms:`, error.message);
+    
     return NextResponse.json({ 
-      error: error.message || "Trade execution failed",
-      details: error.toString()
+      error: error.message || "Trade failed",
+      executionTime: elapsed
     }, { status: 500 });
   }
 }
