@@ -1,4 +1,4 @@
-export const V3_ABI =   [
+export const V3_ABI =  [
     {
       "inputs": [
         {
@@ -572,6 +572,19 @@ export const V3_ABI =   [
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdrawFunds",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {

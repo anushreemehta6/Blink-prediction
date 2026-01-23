@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Trophy } from 'lucide-react';
 
-// Mock asset metadata since we don't have the constants file
 const ASSET_METADATA: any = {
   BTC: { color: '#F7931A' },
   ETH: { color: '#627EEA' },
@@ -47,30 +46,22 @@ export default function InteractiveChart({
   const [isPlacing, setIsPlacing] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  // Hover State
   const [mousePos, setMousePos] = useState<{x: number, y: number} | null>(null);
   const [hoverData, setHoverData] = useState<{price: number, mult: number} | null>(null);
 
-  // CONFIGURATION
-  const DURATION_SECONDS = 30; // How long a bet lasts
+  const DURATION_SECONDS = 30;
   const CHART_HEIGHT = 400;
   const PADDING = { top: 40, right: 100, bottom: 40, left: 60 };
-  
-  // VIEWPORT CONFIGURATION (The Magic Logic)
-  // We want 6 columns total. 2 columns for history, 4 columns for future betting space.
   const TOTAL_COLUMNS = 6;
   const HISTORY_COLUMNS = 2; 
 
-  // Get current asset color
   const assetColor = ASSET_METADATA[selectedAsset]?.color || '#0A696C';
 
-  // Reset price history when asset changes
   useEffect(() => {
     setPriceHistory([]);
     setBlocks([]);
   }, [selectedAsset]);
 
-  // Smooth Animation Loop with RAF
   useEffect(() => {
     let rafId: number;
     const animate = () => {
@@ -81,13 +72,11 @@ export default function InteractiveChart({
     return () => cancelAnimationFrame(rafId);
   }, []);
 
-  // Initialize and update price history
   useEffect(() => {
     if (currentPrice && priceHistory.length === 0) {
       const data: { time: number; price: number }[] = [];
       const currTime = Date.now();
       let price = currentPrice;
-      // Generate smooth initial history
       for (let i = 60; i > 0; i--) {
         const change = (Math.random() - 0.5) * (currentPrice * 0.0003); 
         price += change;
@@ -97,13 +86,11 @@ export default function InteractiveChart({
     }
   }, [currentPrice, selectedAsset]);
 
-  // Optimized price history update
   useEffect(() => {
     if (!currentPrice) return;
     
     const currTime = Date.now();
     setPriceHistory(prev => {
-      // Smooth interpolation - add intermediate points if price jumped too much
       const lastPrice = prev.length > 0 ? prev[prev.length - 1].price : currentPrice;
       const priceDiff = Math.abs(currentPrice - lastPrice);
       const shouldInterpolate = priceDiff > (currentPrice * 0.001);
@@ -122,25 +109,18 @@ export default function InteractiveChart({
       
       newPoints.push({ time: currTime, price: currentPrice });
       const updated = [...prev, ...newPoints];
-      
-      // Keep only last 60 seconds
       return updated.filter(p => currTime - p.time < 60000);
     });
 
-    // Check Hits
+    // ✅ FIXED: Only mark as MISSED when expired, don't check for HIT
     setBlocks(prev => {
       const newBlocks = prev.map(block => {
         if (block.status !== 'PENDING') return block;
-
-        const hit = block.isUpward
-          ? currentPrice >= block.targetPrice
-          : currentPrice <= block.targetPrice;
-
-        if (hit) {
-          return { ...block, status: 'HIT', hitTime: Date.now() };
+        
+        // Only mark as MISSED when time expires, backend will handle WIN
+        if (Date.now() > block.expiryTime) {
+          return { ...block, status: 'MISSED' };
         }
-
-        if (Date.now() > block.expiryTime) return { ...block, status: 'MISSED' };
 
         return block;
       });
@@ -148,7 +128,38 @@ export default function InteractiveChart({
     });
   }, [currentPrice]);
 
-  // Price bounds calculation
+  // Poll backend for position status updates
+  useEffect(() => {
+    if (!userAddress || blocks.length === 0) return;
+
+    const checkPositionStatuses = async () => {
+      for (const block of blocks) {
+        if (block.status !== 'PENDING') continue;
+        
+        try {
+          const res = await fetch(`/api/predictions/status?positionId=${block.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'WON') {
+              setBlocks(prev => prev.map(b => 
+                b.id === block.id ? { ...b, status: 'HIT', hitTime: Date.now() } : b
+              ));
+            } else if (data.status === 'LOST') {
+              setBlocks(prev => prev.map(b => 
+                b.id === block.id ? { ...b, status: 'MISSED' } : b
+              ));
+            }
+          }
+        } catch (e) {
+          // Silently continue
+        }
+      }
+    };
+
+    const interval = setInterval(checkPositionStatuses, 3000);
+    return () => clearInterval(interval);
+  }, [userAddress, blocks]);
+
   const getBounds = () => {
     if (priceHistory.length === 0) return { min: 0, max: 100, range: 100 };
     const prices = priceHistory.map(p => p.price);
@@ -159,10 +170,6 @@ export default function InteractiveChart({
   };
 
   const { min: minPrice, max: maxPrice, range: priceRange } = useMemo(getBounds, [priceHistory]);
-
-  // ----------------------------------------------------------------------
-  // COORDINATE HELPERS
-  // ----------------------------------------------------------------------
 
   const getYFromPrice = (price: number) => {
     const drawHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
@@ -178,24 +185,13 @@ export default function InteractiveChart({
 
   const getXFromTime = (time: number, width: number) => {
     const chartWidth = width - PADDING.left - PADDING.right;
-    
-    // 1. Calculate where "NOW" sits (at the end of column 2)
     const nowX = PADDING.left + (chartWidth * (HISTORY_COLUMNS / TOTAL_COLUMNS));
-    
-    // 2. Calculate scale: We need the FUTURE betting time (30s) to fit into the remaining columns
-    // Remaining columns = 4. Duration = 30s.
-    // So 30s should equal (4/6) of width.
     const futureColumns = TOTAL_COLUMNS - HISTORY_COLUMNS;
     const futureWidthPixels = chartWidth * (futureColumns / TOTAL_COLUMNS);
     const pixelsPerMs = futureWidthPixels / (DURATION_SECONDS * 1000);
-
     const diffMs = time - now;
     return nowX + (diffMs * pixelsPerMs);
   };
-
-  // ----------------------------------------------------------------------
-  // RENDER CANVAS
-  // ----------------------------------------------------------------------
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -217,15 +213,11 @@ export default function InteractiveChart({
 
     const chartWidth = width - PADDING.left - PADDING.right;
     const chartAreaHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
-    
-    // Calculate NOW Position based on columns
     const nowX = PADDING.left + (chartWidth * (HISTORY_COLUMNS / TOTAL_COLUMNS));
 
-    // --- GRID ---
-    ctx.strokeStyle = 'rgba(10, 105, 108, 0.1)'; // Faint grid
+    ctx.strokeStyle = 'rgba(10, 105, 108, 0.1)';
     ctx.lineWidth = 1;
 
-    // Horizontal Grid Lines
     for (let i = 0; i <= 10; i++) {
       const y = PADDING.top + (chartAreaHeight / 10) * i;
       ctx.beginPath(); 
@@ -233,7 +225,6 @@ export default function InteractiveChart({
       ctx.lineTo(width - PADDING.right, y); 
       ctx.stroke();
       
-      // Price Labels on Left
       const priceAtLine = getPriceFromY(y);
       ctx.fillStyle = 'rgba(10, 105, 108, 0.6)';
       ctx.font = '11px sans-serif';
@@ -241,7 +232,6 @@ export default function InteractiveChart({
       ctx.fillText(priceAtLine.toFixed(2), PADDING.left - 8, y + 4);
     }
     
-    // Vertical Columns (6 total)
     for (let i = 0; i <= TOTAL_COLUMNS; i++) {
         const x = PADDING.left + (chartWidth / TOTAL_COLUMNS) * i;
         ctx.beginPath(); 
@@ -250,14 +240,11 @@ export default function InteractiveChart({
         ctx.stroke();
     }
 
-    // --- CLIPPING FOR CHART LINE ---
-    // Only draw the price line to the left of "nowX"
     ctx.save();
     ctx.beginPath();
     ctx.rect(PADDING.left, PADDING.top, (nowX - PADDING.left), chartAreaHeight);
     ctx.clip();
 
-    // Price Line with smoother rendering
     if (priceHistory.length > 1) {
       ctx.shadowColor = assetColor;
       ctx.shadowBlur = 15;
@@ -266,7 +253,6 @@ export default function InteractiveChart({
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       
-      // Use quadratic curves for smoother line
       ctx.beginPath();
       const points = priceHistory.map(p => ({
         x: getXFromTime(p.time, width),
@@ -281,7 +267,6 @@ export default function InteractiveChart({
         ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
       }
       
-      // Last segment
       if (points.length > 1) {
         const last = points[points.length - 1];
         const secondLast = points[points.length - 2];
@@ -293,7 +278,6 @@ export default function InteractiveChart({
     }
     ctx.restore();
 
-    // --- "NOW" LINE ---
     ctx.strokeStyle = assetColor;
     ctx.setLineDash([5, 5]);
     ctx.lineWidth = 2;
@@ -308,28 +292,24 @@ export default function InteractiveChart({
     ctx.textAlign = 'center';
     ctx.fillText('NOW', nowX, PADDING.top - 10);
 
-    // Current Price Dot
     if (currentPrice) {
       const y = Math.max(PADDING.top, Math.min(CHART_HEIGHT - PADDING.bottom, getYFromPrice(currentPrice)));
       
-      // Horizontal Price Tracer
       ctx.strokeStyle = assetColor;
       ctx.globalAlpha = 0.5;
       ctx.setLineDash([2, 2]);
       ctx.beginPath(); 
       ctx.moveTo(nowX, y); 
-      ctx.lineTo(width - PADDING.right, y); // Draw line into the future
+      ctx.lineTo(width - PADDING.right, y);
       ctx.stroke();
       ctx.globalAlpha = 1.0;
       ctx.setLineDash([]);
 
-      // The Dot
       ctx.fillStyle = assetColor;
       ctx.beginPath(); 
       ctx.arc(nowX, y, 6, 0, Math.PI * 2); 
       ctx.fill();
       
-      // Pulse Effect
       ctx.beginPath();
       ctx.strokeStyle = assetColor;
       ctx.lineWidth = 1;
@@ -339,16 +319,11 @@ export default function InteractiveChart({
 
   }, [priceHistory, currentPrice, minPrice, maxPrice, priceRange, now, assetColor, getYFromPrice, getXFromTime]);
 
-  // ----------------------------------------------------------------------
-  // MOUSE INTERACTION
-  // ----------------------------------------------------------------------
-
-  // Debounced mouse tracking for better performance
   const handleMouseMove = useMemo(() => {
     let rafId: number | null = null;
     
     return (e: React.MouseEvent<HTMLDivElement>) => {
-      if (rafId) return; // Skip if already scheduled
+      if (rafId) return;
       
       rafId = requestAnimationFrame(() => {
         rafId = null;
@@ -360,16 +335,12 @@ export default function InteractiveChart({
         
         const width = rect.width;
         const chartWidth = width - PADDING.left - PADDING.right;
-        
-        // Calculate NOW position again for hit testing
         const nowX = PADDING.left + (chartWidth * (HISTORY_COLUMNS / TOTAL_COLUMNS));
         
-        // Only allow betting to the RIGHT of the NOW line
         if (x > nowX && x < (width - PADDING.right)) {
           setMousePos({ x, y });
           const targetPrice = getPriceFromY(y);
 
-          // Multiplier Logic
           const diff = Math.abs(targetPrice - currentPrice);
           const distanceBps = (diff * 10000) / currentPrice;
           const bonus = (distanceBps * 2000) / 1000;
@@ -418,14 +389,11 @@ export default function InteractiveChart({
       >
         <canvas ref={canvasRef} className="absolute inset-0 z-0" />
 
-        {/* GHOST BLOCK (The Prediction Cursor) */}
         {mousePos && hoverData && (
           <div className="pointer-events-none z-10">
-            {/* Crosshairs */}
             <div className="absolute h-[1px] w-full bg-white/20 border-t border-dashed border-white/40" style={{ top: mousePos.y }} />
             <div className="absolute w-[1px] h-full bg-white/20 border-l border-dashed border-white/40" style={{ left: mousePos.x }} />
             
-            {/* The Bet Box */}
             <div className={`absolute w-20 h-16 border-2 flex flex-col items-center justify-center rounded-xl bg-black/60 backdrop-blur-md shadow-[0_0_15px_rgba(0,0,0,0.5)]
               ${hoverData.price > (currentPrice || 0) ? 'border-green-400 text-green-400' : 'border-red-400 text-red-400'}`}
               style={{ left: mousePos.x, top: mousePos.y, transform: 'translate(-50%, -50%)' }}>
@@ -436,13 +404,11 @@ export default function InteractiveChart({
           </div>
         )}
 
-        {/* ACTIVE BLOCKS */}
         {blocks.map(block => {
            const width = chartContainerRef.current?.clientWidth || 0;
            const x = getXFromTime(block.expiryTime, width);
            const y = getYFromPrice(block.targetPrice);
            
-           // Hide if off screen to the left
            if (x < PADDING.left) return null;
 
            return (
@@ -455,7 +421,6 @@ export default function InteractiveChart({
                  transform: 'translate(-50%, -50%)'
                }}
              >
-               {/* Result Animations */}
                {block.status === 'HIT' && (
                   <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
                     <div className="w-20 h-20 bg-green-500/30 rounded-full animate-ping" />
@@ -465,7 +430,6 @@ export default function InteractiveChart({
                   </div>
                )}
 
-               {/* The Block Itself */}
                <div
                  className={`w-12 h-12 flex flex-col items-center justify-center rounded-lg border-2 shadow-lg transition-all duration-300
                    ${block.status === 'HIT' ? 'bg-green-500 border-green-300 scale-110 shadow-green-500/50' :
@@ -478,7 +442,6 @@ export default function InteractiveChart({
                  <span className="text-white/60 text-[8px] font-mono">{block.multiplier.toFixed(2)}x</span>
                </div>
                
-               {/* Countdown Timer */}
                {block.status === 'PENDING' && (
                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 font-mono text-[10px] text-white/50">
                    {((block.expiryTime - now)/1000).toFixed(1)}s
@@ -489,5 +452,6 @@ export default function InteractiveChart({
         })}
       </div>
     </div>
-  );
+ 
+);
 }

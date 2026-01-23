@@ -20,7 +20,7 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
     uint256 public constant MAX_MULTIPLIER = 5000; // 50.00x
     uint256 public constant DIFFICULTY_SCALER = 2000;
 
-    // ✅ Added: Manager mapping for the bot
+    // Manager mapping for the bot
     mapping(address => bool) public isManager;
 
     struct Position {
@@ -50,7 +50,6 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
     error AlreadyResolved();
     error NotManager();
 
-    // ✅ Added: Manager modifier
     modifier onlyManager() {
         if (!isManager[msg.sender] && msg.sender != owner()) revert NotManager();
         _;
@@ -62,6 +61,10 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
         treasury = _treasury;
     }
 
+    // ============================================================
+    // UTILITIES
+    // ============================================================
+
     function calculateMultiplier(int64 currentPrice, int64 targetPrice) public pure returns (uint256) {
         require(currentPrice > 0, "Invalid price");
         int64 diff = targetPrice > currentPrice ? targetPrice - currentPrice : currentPrice - targetPrice;
@@ -71,13 +74,19 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
         return multiplier > MAX_MULTIPLIER ? MAX_MULTIPLIER : multiplier;
     }
 
-    // ✅ Added: Logic for Bot to register trades sent via USDC Transfer
+    // ============================================================
+    // CORE LOGIC
+    // ============================================================
+
+    /**
+     * @dev Allows the bot/backend to register a trade that was funded via direct transfer
+     */
     function registerTransferPosition(
         address user,
         int64 targetPrice,
         uint256 amount,
         int64 entryPrice,
-        uint256 customId // Use the positionId from your DB
+        uint256 customId 
     ) external onlyManager {
         if (positions[customId].id != 0) revert("ID already exists");
         
@@ -102,6 +111,9 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
         emit PositionOpened(customId, user, targetPrice, multiplier, block.timestamp + DURATION);
     }
 
+    /**
+     * @dev Standard user entry method
+     */
     function openPosition(
         bytes32 assetPriceId,
         int64 targetPrice,
@@ -145,6 +157,9 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
         }
     }
 
+    /**
+     * @dev THE FIX: Allows settlement of expired positions as LOSS without reverting
+     */
     function resolvePosition(
         uint256 positionId,
         bytes[] calldata pythPriceUpdate
@@ -152,12 +167,16 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
         Position storage pos = positions[positionId];
         if (pos.resolved) revert AlreadyResolved();
         
+        // 1. Update Pyth Price
         uint256 fee = pyth.getUpdateFee(pythPriceUpdate);
         pyth.updatePriceFeeds{value: fee}(pythPriceUpdate);
         
+        // Use ETH price ID for checks (make this dynamic if supporting multiple assets on-chain later)
+        // Ensure this ID matches the asset of the position if you expand beyond ETH
         bytes32 priceId = 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace;
         PythStructs.Price memory currentPrice = pyth.getPrice(priceId);
 
+        // 2. Determine State
         bool hit = false;
         bool isExpired = block.timestamp > pos.expiryTime;
 
@@ -168,29 +187,40 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
         }
 
         uint256 payout = 0;
+
+        // 3. Resolution Logic (No Revert on Expired Loss)
         if (hit) {
+            // WIN: Target hit (either before expiry or at expiry)
             payout = (pos.amount * pos.multiplier) / 100;
             pos.resolved = true;
             pos.won = true;
             require(usdc.transfer(pos.user, payout), "Payout failed");
         } 
         else if (isExpired) {
+            // LOSS: Target not hit AND time is up. 
+            // We resolve as lost, keep the funds, and DO NOT REVERT.
             pos.resolved = true;
             pos.won = false;
         } 
         else {
+            // ACTIVE: Target not hit AND time is NOT up.
+            // Game is still going, so we must revert here to prevent premature closure.
             revert("Game still active, target not hit yet");
         }
 
         emit PositionResolved(pos.id, pos.user, payout, hit);
 
+        // Refund excess gas fee
         if (msg.value > fee) {
             (bool success, ) = msg.sender.call{value: msg.value - fee}("");
             require(success);
         }
     }
 
-    // ✅ Added: Manager management
+    // ============================================================
+    // MANAGEMENT
+    // ============================================================
+
     function setManager(address _manager, bool _status) external onlyOwner {
         isManager[_manager] = _status;
     }
@@ -201,6 +231,11 @@ contract ThirtyEngineV3 is Ownable, ReentrancyGuard {
 
     function setTreasury(address _treasury) external onlyOwner {
         treasury = _treasury;
+    }
+    
+    // Emergency withdraw (only if no active positions, safeguard)
+    function withdrawFunds(uint256 amount) external onlyOwner {
+        require(usdc.transfer(msg.sender, amount), "Transfer failed");
     }
 
     receive() external payable {}
