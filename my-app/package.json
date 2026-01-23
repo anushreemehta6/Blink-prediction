@@ -5,19 +5,38 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "eslint",
+    "bot": "tsx src/services/round-resolver.ts"
   },
   "dependencies": {
-    "next": "16.1.4",
+    "@metamask/smart-accounts-kit": "^0.3.0",
+    "axios": "^1.13.2",
+    "canvas-confetti": "^1.9.4",
+    "dotenv": "^17.2.3",
+    "framer-motion": "^12.25.0",
+    "lightweight-charts": "^5.1.0",
+    "lucide-react": "^0.562.0",
+    "mongoose": "^9.1.2",
+    "next": "16.1.1",
+    "permissionless": "^0.3.2",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-hot-toast": "^2.6.0",
+    "recharts": "^3.6.0",
+    "viem": "^2.44.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/mongoose": "^5.11.97",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
