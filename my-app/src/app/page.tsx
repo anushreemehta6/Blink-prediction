@@ -11,6 +11,7 @@ import { createWalletClient, createPublicClient, http, custom, parseUnits, parse
 import { monadTestnet } from '@/lib/chains';
 import { toast } from 'react-hot-toast';
 import Home from '@/components/Home';
+import { PYTH_PRICE_IDS, AssetSymbol, getPriceId, ASSET_METADATA, MONAD_CONFIG } from '@/lib/constants';
 
 /* ==================================================================================
    CONFIGURATION & CONSTANTS
@@ -18,7 +19,6 @@ import Home from '@/components/Home';
 
 const THIRTY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_THIRTY_ENGINE_ADDRESS as Address;
 const USDC_ADDRESS = "0xD9a4C52EfA4EfA8F698EC9941061c9ef3387DBc6" as Address;
-const ETH_PRICE_ID = "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace";
 
 const CONTRACT_ABI = [
   {
@@ -48,6 +48,7 @@ const CONTRACT_ABI = [
 
 export default function HomePage() {
   const { isConnected, address } = useWallet();
+  const [selectedAsset, setSelectedAsset] = useState<AssetSymbol>('ETH');
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [prevPrice, setPrevPrice] = useState<number | null>(null);
   const [priceDirection, setPriceDirection] = useState<'up' | 'down' | null>(null);
@@ -55,6 +56,10 @@ export default function HomePage() {
   const [isCheckingAutoPilot, setIsCheckingAutoPilot] = useState(true);
   const [selectedAmount, setSelectedAmount] = useState(5);
   const [usdcBalance, setUsdcBalance] = useState<string>("0.00");
+
+  // Get current asset's price ID
+  const currentPriceId = getPriceId(selectedAsset);
+  const currentAssetMeta = ASSET_METADATA[selectedAsset];
 
   // Check if auto-pilot is already enabled on mount
   useEffect(() => {
@@ -78,11 +83,11 @@ export default function HomePage() {
     checkAutoPilot();
   }, [address]);
 
-  // Fetch current ETH price
+  // Fetch current price for selected asset
   useEffect(() => {
     async function fetchPrice() {
       try {
-        const res = await fetch('/api/pyth/price?asset=ETH');
+        const res = await fetch(`/api/pyth/price?asset=${selectedAsset}`);
         if (res.ok) {
           const data = await res.json();
           const newPrice = data.price;
@@ -101,7 +106,7 @@ export default function HomePage() {
     fetchPrice();
     const interval = setInterval(fetchPrice, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedAsset]);
 
   // Fetch USDC balance
   useEffect(() => {
@@ -145,7 +150,6 @@ export default function HomePage() {
   const handleDisableAutoPilot = () => {
     if (!address) return;
 
-    // Show confirmation toast
     toast((t) => (
       <div className="flex flex-col gap-3">
         <p className="font-medium">Disable 1-Click Trading?</p>
@@ -191,7 +195,7 @@ export default function HomePage() {
     }
   };
 
-  // ✅ Logic to Approve USDC for Manual Trading
+  // Approve USDC for Manual Trading
   const handleApproveUSDC = async () => {
     if (!address) return;
     const toastId = toast.loading("Approving USDC...");
@@ -227,26 +231,26 @@ export default function HomePage() {
     let positionId: number; 
 
     try {
-      // ✅ Check USDC Balance first to prevent "Silent" reverts
-    const balance = await publicClient.readContract({
-  address: USDC_ADDRESS,
-  abi: [{ 
-    name: 'balanceOf', 
-    type: 'function', 
-    inputs: [{ name: 'owner', type: 'address' }], 
-    outputs: [{ name: 'balance', type: 'uint256' }] 
-  }],
-  functionName: 'balanceOf',
-  args: [address as Address],
-}) as bigint; // 🔥 Add 'as bigint' here to fix the error
+      // Check USDC Balance
+      const balance = await publicClient.readContract({
+        address: USDC_ADDRESS,
+        abi: [{ 
+          name: 'balanceOf', 
+          type: 'function', 
+          inputs: [{ name: 'owner', type: 'address' }], 
+          outputs: [{ name: 'balance', type: 'uint256' }] 
+        }],
+        functionName: 'balanceOf',
+        args: [address as Address],
+      }) as bigint;
 
       const requiredAmount = parseUnits(amount.toString(), 6);
       if (balance < requiredAmount) {
         throw new Error(`Insufficient USDC balance. You need ${amount} USDC.`);
       }
 
-      // 1. Get Pyth Oracle Update Data
-      const response = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${ETH_PRICE_ID}`);
+      // Get Pyth Oracle Update Data for selected asset
+      const response = await fetch(`${MONAD_CONFIG.HERMES_ENDPOINT}?ids[]=${currentPriceId}`);
       const pythData = await response.json();
       const pythPriceUpdate = pythData.binary.data.map((d: string) => `0x${d}` as Address);
 
@@ -257,47 +261,51 @@ export default function HomePage() {
         const res = await fetch('/api/trade/execute', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userWallet: address, targetPrice, amount, pythUpdate: pythPriceUpdate, positionId }),
+          body: JSON.stringify({ 
+            userWallet: address, 
+            targetPrice, 
+            amount, 
+            pythUpdate: pythPriceUpdate, 
+            positionId,
+            assetPriceId: currentPriceId 
+          }),
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         txHash = data.txHash;
       } else {
-       const walletClient = createWalletClient({ 
-    chain: monadTestnet, 
-    transport: custom(window.ethereum!) 
-  });
+        const walletClient = createWalletClient({ 
+          chain: monadTestnet, 
+          transport: custom(window.ethereum!) 
+        });
 
-  // Get actual on-chain ID
-  const nextId = await publicClient.readContract({ 
-    address: THIRTY_CONTRACT_ADDRESS, 
-    abi: CONTRACT_ABI, 
-    functionName: 'nextPositionId' 
-  });
-  positionId = Number(nextId); 
+        // Get actual on-chain ID
+        const nextId = await publicClient.readContract({ 
+          address: THIRTY_CONTRACT_ADDRESS, 
+          abi: CONTRACT_ABI, 
+          functionName: 'nextPositionId' 
+        });
+        positionId = Number(nextId); 
 
-  const targetPriceScaled = BigInt(Math.floor(targetPrice * 1e8));
+        const targetPriceScaled = BigInt(Math.floor(targetPrice * 1e8));
 
-  toast.loading(`Signing for Position #${positionId}...`, { id: toastId });
+        toast.loading(`Signing for Position #${positionId}...`, { id: toastId });
 
-  // ✅ FINAL STABLE CALL PARAMS
-  txHash = await walletClient.writeContract({
-    address: THIRTY_CONTRACT_ADDRESS,
-    abi: CONTRACT_ABI,
-    functionName: 'openPosition',
-    args: [
-      ETH_PRICE_ID as `0x${string}`, // Ensure this is exactly the hardcoded ETH ID
-      targetPriceScaled, 
-      requiredAmount, 
-      pythPriceUpdate
-    ],
-    // ✅ Lowered to standard Pyth update fee
-    value: parseEther('0.01'), 
-    account: address as Address,
-    // ✅ Use a safer, rounded gas limit
-    gas: 1000000n, 
-  });
-}
+        txHash = await walletClient.writeContract({
+          address: THIRTY_CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: 'openPosition',
+          args: [
+            currentPriceId,
+            targetPriceScaled, 
+            requiredAmount, 
+            pythPriceUpdate
+          ],
+          value: parseEther('0.01'), 
+          account: address as Address,
+          gas: 1000000n, 
+        });
+      }
 
       toast.loading(`Confirming on-chain...`, { id: toastId });
       const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as Address });
@@ -313,6 +321,7 @@ export default function HomePage() {
         body: JSON.stringify({
           positionId,
           address,
+          asset: selectedAsset,
           targetPrice: targetPrice.toString(),
           entryPrice: currentPrice?.toString() || "0",
           isUpward: targetPrice > (currentPrice || 0),
@@ -363,11 +372,9 @@ export default function HomePage() {
               <div className="text-white/70 text-sm animate-pulse">Checking...</div>
             ) : isAutoPilotEnabled ? (
               <>
-                {/* Active Badge */}
                 <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-5 py-2 rounded-full text-sm font-bold">
                   Active
                 </span>
-                {/* Disable Button */}
                 <button
                   onClick={handleDisableAutoPilot}
                   className="text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 px-5 py-2 rounded-full font-bold transition-all"
@@ -379,13 +386,28 @@ export default function HomePage() {
               <AutoTradeSetup userAddress={address!} onEnabled={() => setIsAutoPilotEnabled(true)} />
             )}
 
-            {/* Wallet Button */}
             <ConnectWallet />
           </div>
         </div>
       </nav>
 
       <main className="max-w-5xl mx-auto px-4 pt-8 pb-8 space-y-6">
+        {/* Asset Selector */}
+        <div className="flex justify-center gap-3">
+          {(Object.keys(PYTH_PRICE_IDS) as AssetSymbol[]).map((asset) => (
+            <button
+              key={asset}
+              onClick={() => setSelectedAsset(asset)}
+              className={`px-6 py-3 rounded-xl font-bold transition-all ${
+                selectedAsset === asset
+                  ? 'bg-[#0A696C] text-white shadow-lg scale-105'
+                  : 'bg-white/10 text-white/60 hover:bg-white/20'
+              }`}
+            >
+              {asset}
+            </button>
+          ))}
+        </div>
 
         {/* Chart Container */}
         <div className="flex justify-center">
@@ -398,7 +420,7 @@ export default function HomePage() {
                     <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                     <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping"></div>
                   </div>
-                  <span className="text-white/60 text-sm font-medium">ETH/USD</span>
+                  <span className="text-white/60 text-sm font-medium">{selectedAsset}/USD</span>
                 </div>
               </div>
 
@@ -435,6 +457,7 @@ export default function HomePage() {
               currentPrice={currentPrice}
               userAddress={address}
               selectedAmount={selectedAmount}
+              selectedAsset={selectedAsset}
               onPlaceBet={handlePlaceBet}
             />
           </div>

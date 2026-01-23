@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Trophy } from 'lucide-react';
+import { AssetSymbol, ASSET_METADATA } from '@/lib/constants';
 
 interface TargetBlock {
   id: string;
@@ -13,17 +14,24 @@ interface TargetBlock {
   isUpward: boolean;
   status: 'PENDING' | 'HIT' | 'MISSED';
   createdAt: number;
-  hitTime?: number; // Track when block was hit for animation
+  hitTime?: number;
 }
 
 interface InteractiveChartProps {
   currentPrice: number | null;
   userAddress?: string;
   selectedAmount?: number;
+  selectedAsset: AssetSymbol;
   onPlaceBet: (targetPrice: number, amount: number, multiplier: number) => Promise<void>;
 }
 
-export default function InteractiveChart({ currentPrice, userAddress, selectedAmount = 5, onPlaceBet }: InteractiveChartProps) {
+export default function InteractiveChart({ 
+  currentPrice, 
+  userAddress, 
+  selectedAmount = 5, 
+  selectedAsset,
+  onPlaceBet 
+}: InteractiveChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const [priceHistory, setPriceHistory] = useState<{ time: number; price: number }[]>([]);
@@ -40,15 +48,24 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
   const PADDING = { top: 40, right: 100, bottom: 40, left: 60 };
   const FUTURE_SECONDS = 30;
 
-  // 1. ANIMATION LOOP (Keeps the blocks moving)
+  // Get current asset color
+  const assetColor = ASSET_METADATA[selectedAsset].color;
+
+  // Reset price history when asset changes
+  useEffect(() => {
+    setPriceHistory([]);
+    setBlocks([]);
+  }, [selectedAsset]);
+
+  // Animation Loop
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(Date.now());
-    }, 50); // 20FPS update for smooth movement
+    }, 50);
     return () => clearInterval(interval);
   }, []);
 
-  // 2. MOCK DATA & LIVE UPDATES
+  // Initialize and update price history
   useEffect(() => {
     if (currentPrice && priceHistory.length === 0) {
       const data: { time: number; price: number }[] = [];
@@ -61,7 +78,7 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
       }
       setPriceHistory(data);
     }
-  }, [currentPrice]);
+  }, [currentPrice, selectedAsset]);
 
   useEffect(() => {
     if (!currentPrice) return;
@@ -76,7 +93,6 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
       const newBlocks = prev.map(block => {
         if (block.status !== 'PENDING') return block;
 
-        // Hit Logic
         const hit = block.isUpward
           ? currentPrice >= block.targetPrice
           : currentPrice <= block.targetPrice;
@@ -85,7 +101,6 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
           return { ...block, status: 'HIT', hitTime: Date.now() };
         }
 
-        // Expiry Logic
         if (Date.now() > block.expiryTime) return { ...block, status: 'MISSED' };
 
         return block;
@@ -94,7 +109,7 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
     });
   }, [currentPrice]);
 
-  // 3. ZOOM HELPERS
+  // Price bounds calculation
   const getBounds = () => {
     if (priceHistory.length === 0) return { min: 0, max: 100, range: 100 };
     const prices = priceHistory.map(p => p.price);
@@ -118,18 +133,15 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
     return minPrice + (ratio * priceRange);
   };
 
-  // Helper to map Time to X position
   const getXFromTime = (time: number, width: number) => {
     const chartWidth = width - PADDING.left - PADDING.right;
     const nowX = PADDING.left + chartWidth;
-    const pixelsPerMs = chartWidth / (60 * 1000); // 60s history fits in chartWidth
-    
-    // Future is to the right of nowX
+    const pixelsPerMs = chartWidth / (60 * 1000);
     const diffMs = time - now;
     return nowX + (diffMs * pixelsPerMs);
   };
 
-  // 4. RENDER CANVAS
+  // Render Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = chartContainerRef.current;
@@ -152,71 +164,84 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
     const nowX = PADDING.left + chartWidth;
     const chartAreaHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
 
-    // A. Grid (draw before clipping)
+    // Grid
     ctx.strokeStyle = 'rgba(10, 105, 108, 0.3)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 10; i++) {
       const y = PADDING.top + (chartAreaHeight / 10) * i;
-      ctx.beginPath(); ctx.moveTo(PADDING.left, y); ctx.lineTo(width - PADDING.right, y); ctx.stroke();
+      ctx.beginPath(); 
+      ctx.moveTo(PADDING.left, y); 
+      ctx.lineTo(width - PADDING.right, y); 
+      ctx.stroke();
       const priceAtLine = getPriceFromY(y);
       ctx.fillStyle = 'rgba(10, 105, 108, 0.6)';
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'right';
       ctx.fillText(priceAtLine.toFixed(2), PADDING.left - 8, y + 4);
     }
-    // Time Lines
+    
     for (let x = PADDING.left; x <= width - PADDING.right; x += chartWidth / 6) {
-      ctx.beginPath(); ctx.moveTo(x, PADDING.top); ctx.lineTo(x, CHART_HEIGHT - PADDING.bottom); ctx.stroke();
+      ctx.beginPath(); 
+      ctx.moveTo(x, PADDING.top); 
+      ctx.lineTo(x, CHART_HEIGHT - PADDING.bottom); 
+      ctx.stroke();
     }
 
-    // Set clipping region for chart area
+    // Clipping region
     ctx.save();
     ctx.beginPath();
     ctx.rect(PADDING.left, PADDING.top, chartWidth, chartAreaHeight);
     ctx.clip();
 
-    // B. Price Line - Teal color (now clipped)
+    // Price Line with asset color
     if (priceHistory.length > 1) {
-      ctx.shadowColor = '#0A696C';
+      ctx.shadowColor = assetColor;
       ctx.shadowBlur = 15;
-      ctx.strokeStyle = '#0A696C';
+      ctx.strokeStyle = assetColor;
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
       ctx.beginPath();
       priceHistory.forEach((p, i) => {
         const x = getXFromTime(p.time, width);
         const y = getYFromPrice(p.price);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        if (i === 0) ctx.moveTo(x, y); 
+        else ctx.lineTo(x, y);
       });
       ctx.stroke();
       ctx.shadowBlur = 0;
     }
 
-    // Restore context (remove clipping)
     ctx.restore();
 
-    // C. "NOW" Line
+    // "NOW" Line
     ctx.strokeStyle = 'rgba(10, 105, 108, 0.5)';
     ctx.setLineDash([5, 5]);
-    ctx.beginPath(); ctx.moveTo(nowX, PADDING.top); ctx.lineTo(nowX, CHART_HEIGHT - PADDING.bottom); ctx.stroke();
+    ctx.beginPath(); 
+    ctx.moveTo(nowX, PADDING.top); 
+    ctx.lineTo(nowX, CHART_HEIGHT - PADDING.bottom); 
+    ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = 'rgba(10, 105, 108, 0.8)';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('NOW', nowX, PADDING.top - 8);
 
-    // D. Current Price Dot
+    // Current Price Dot
     if (currentPrice) {
       const y = Math.max(PADDING.top, Math.min(CHART_HEIGHT - PADDING.bottom, getYFromPrice(currentPrice)));
-      ctx.strokeStyle = '#0A696C';
+      ctx.strokeStyle = assetColor;
       ctx.setLineDash([2, 2]);
-      ctx.beginPath(); ctx.moveTo(nowX, y); ctx.lineTo(PADDING.left, y); ctx.stroke();
+      ctx.beginPath(); 
+      ctx.moveTo(nowX, y); 
+      ctx.lineTo(PADDING.left, y); 
+      ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#0A696C';
-      ctx.beginPath(); ctx.arc(nowX, y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = assetColor;
+      ctx.beginPath(); 
+      ctx.arc(nowX, y, 5, 0, Math.PI * 2); 
+      ctx.fill();
 
-      // Price label on left
-      ctx.fillStyle = '#0A696C';
+      ctx.fillStyle = assetColor;
       ctx.fillRect(PADDING.left - 55, y - 10, 52, 20);
       ctx.fillStyle = '#fff';
       ctx.font = '11px sans-serif';
@@ -224,43 +249,28 @@ export default function InteractiveChart({ currentPrice, userAddress, selectedAm
       ctx.fillText(currentPrice.toFixed(2), PADDING.left - 6, y + 4);
     }
 
-  }, [priceHistory, currentPrice, minPrice, maxPrice, now]);
+  }, [priceHistory, currentPrice, minPrice, maxPrice, now, assetColor]);
 
-  // 5. INTERACTION
-const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  // Mouse interaction
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!chartContainerRef.current || !currentPrice) return;
     const rect = chartContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     
-    // Calculate boundaries
     const width = rect.width;
     const chartWidth = width - PADDING.left - PADDING.right;
     const nowX = PADDING.left + chartWidth;
     
-    // Only show hover data if mouse is in the "Future" zone (to the right of NOW line)
     if (x > nowX) {
       setMousePos({ x, y });
       const targetPrice = getPriceFromY(y);
 
-      // ============================================================
-      // 🧠 MATCHING SMART CONTRACT MATH (ThirtyEngineV3.sol)
-      // ============================================================
-      // 1. Calculate price difference
+      // Smart Contract Math
       const diff = Math.abs(targetPrice - currentPrice);
-
-      // 2. Convert distance to Basis Points (BPS). 1% = 100 BPS
-      // Formula: (diff * 10000) / currentPrice
       const distanceBps = (diff * 10000) / currentPrice;
-
-      // 3. Apply DIFFICULTY_SCALER (2000)
-      // Formula: (distanceBps * DIFFICULTY_SCALER) / 1000
       const bonus = (distanceBps * 2000) / 1000;
-
-      // 4. Add MIN_MULTIPLIER (110 = 1.1x) and scale down by 100 for frontend display
       let mult = (110 + bonus) / 100;
-
-      // 5. Apply MIN/MAX Caps (1.1x to 50.0x)
       mult = Math.min(Math.max(mult, 1.1), 50.0);
 
       setHoverData({ price: targetPrice, mult });
@@ -279,7 +289,7 @@ const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
       amount: selectedAmount,
       multiplier: hoverData.mult,
       expiryTime: Date.now() + (DURATION_SECONDS * 1000),
-      y: mousePos.y, // We only store Y, X is calculated live
+      y: mousePos.y,
       isUpward: hoverData.price > currentPrice,
       status: 'PENDING',
       createdAt: Date.now()
@@ -336,10 +346,8 @@ const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
                  transform: 'translate(-50%, -50%)'
                }}
              >
-               {/* Burst effect for recent hits */}
                {isRecentHit && (
                  <>
-                   {/* Expanding ring 1 */}
                    <div
                      className="absolute rounded-full border-4 border-green-400 animate-ping"
                      style={{
@@ -351,7 +359,6 @@ const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
                        animationDuration: '0.6s'
                      }}
                    />
-                   {/* Expanding ring 2 */}
                    <div
                      className="absolute rounded-full border-2 border-yellow-300 animate-ping"
                      style={{
@@ -364,7 +371,6 @@ const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
                        animationDelay: '0.1s'
                      }}
                    />
-                   {/* Glow */}
                    <div
                      className="absolute rounded-full bg-green-400 animate-pulse"
                      style={{
@@ -377,7 +383,6 @@ const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
                        opacity: 0.7
                      }}
                    />
-                   {/* WIN text */}
                    <div
                      className="absolute font-black text-green-400 text-lg animate-bounce whitespace-nowrap"
                      style={{
@@ -392,7 +397,6 @@ const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
                  </>
                )}
 
-               {/* Block */}
                <div
                  className={`w-14 h-14 flex flex-col items-center justify-center rounded-lg border-2 shadow-lg transition-all
                    ${block.status === 'HIT' ? 'bg-green-500 border-green-300 scale-125 z-20' :
