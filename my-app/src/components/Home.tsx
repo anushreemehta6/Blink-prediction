@@ -1,48 +1,52 @@
-'use client'
+'use client';
 
-import { dice, grid } from '@/assets'
-import React from 'react'
-import Image from 'next/image'
-import { useWallet } from '@/context/WalletContext'
-import Header from './Header'
-import BackgroundGrid from './bgGrid'
+import React from 'react';
+import Image from 'next/image';
+import { useWallet } from '@/context/WalletContext';
+import Header from './Header';
+import BackgroundGrid from './bgGrid';
+import { dice } from '@/assets';
 
 const Home = () => {
-  const { connectWallet, isConnecting } = useWallet()
+  const { connectWallet, isConnecting } = useWallet();
 
   return (
     <>
-       <BackgroundGrid />
-    <div
-      className='fixed inset-0 w-full h-full overflow-hidden'
-      
-    >
-      {/* Overlay for better text readability */}
-      <div className='absolute inset-0 bg-black/40' />
+      <BackgroundGrid />
+      <div className="fixed inset-0 w-full h-full overflow-hidden bg-[var(--bg-deep)]">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[var(--bg-deep)]/80" />
 
-      {/* Header */}
-      <Header currentPrice={null} />
+        <Header currentPrice={null} />
 
-      {/* Content */}
-      <div className='relative z-10 flex flex-col justify-center items-center text-center h-full px-4'>
-        <h1 className='font-[family-name:var(--font-spicy-rice)] text-4xl md:text-5xl lg:text-[64px] leading-tight'>
-          Blink and the market moves.
-        </h1>
-        <p className='font-[family-name:var(--font-spicy-rice)] text-xl md:text-2xl lg:text-[32px] text-gray-300 mt-4'>
-          30-second prediction rounds.
-        </p>
-        <button
-          onClick={connectWallet}
-          disabled={isConnecting}
-          className='mt-8 flex items-center gap-2 bg-gradient-to-r from-[#599BA5] to-[#A1BCBD] text-black px-6 lg:px-8 py-3 lg:py-4 rounded-full font-bold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105 disabled:opacity-60 disabled:cursor-wait disabled:scale-100 text-base lg:text-lg'
-        >
-          <Image src={dice} alt='dice' width={24} height={24} />
-          <span>{isConnecting ? 'Connecting...' : 'Start Blinking'}</span>
-        </button>
+        <div className="relative z-10 flex flex-col justify-center items-center text-center min-h-screen px-4 pt-16">
+          <p
+            className="font-[family-name:var(--font-mono)] text-xs uppercase tracking-[0.2em] text-[var(--accent-green)] mb-4"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          >
+            30-Second Prediction Markets
+          </p>
+          <h1
+            className="font-[family-name:var(--font-display)] text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-[var(--text-primary)] max-w-3xl leading-[1.1]"
+            style={{ fontFamily: 'var(--font-display)' }}
+          >
+            PREDICT. TRADE. WIN.
+          </h1>
+          <p className="font-[family-name:var(--font-mono)] text-base sm:text-lg text-[var(--text-muted)] mt-5 max-w-xl">
+            Click the chart. Set your target. 30 seconds to resolve. Real money on Monad.
+          </p>
+          <button
+            onClick={connectWallet}
+            disabled={isConnecting}
+            className="mt-10 flex items-center gap-3 bg-[var(--accent-green)] text-[var(--bg-deep)] font-[family-name:var(--font-mono)] font-bold px-8 py-4 rounded-lg border-0 transition-all duration-200 hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait disabled:hover:scale-100 disabled:hover:brightness-100"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          >
+            <Image src={dice} alt="" width={22} height={22} className="opacity-90" />
+            <span>{isConnecting ? 'Connecting…' : 'ENTER ARENA'}</span>
+          </button>
+        </div>
       </div>
-    </div>
-  </>
-  )
-}
+    </>
+  );
+};
 
-export default Home
+export default Home;

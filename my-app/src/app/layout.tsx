@@ -1,14 +1,18 @@
 import type { Metadata } from 'next';
-import { Inter, Spicy_Rice } from 'next/font/google';
+import { Inter, JetBrains_Mono, Orbitron } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import { WalletProvider } from '@/context/WalletContext';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
-const spicyRice = Spicy_Rice({
-  weight: '400',
+const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
-  variable: '--font-spicy-rice'
+  variable: '--font-mono',
+});
+const orbitron = Orbitron({
+  subsets: ['latin'],
+  variable: '--font-display',
+  weight: ['600', '700', '800'],
 });
 
 export const metadata: Metadata = {
@@ -35,7 +39,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} ${spicyRice.variable}`}>
+      <body className={`${inter.className} ${jetbrainsMono.variable} ${orbitron.variable}`}>
         <WalletProvider>
           {children}
           <Toaster
@@ -43,24 +47,20 @@ export default function RootLayout({
             toastOptions={{
               duration: 4000,
               style: {
-                background: '#333',
-                color: '#fff',
-                borderRadius: '12px',
-                padding: '16px',
-                fontSize: '14px',
-                fontWeight: '500',
+                background: '#0d1117',
+                color: '#e6edf3',
+                borderRadius: '8px',
+                padding: '14px 18px',
+                fontSize: '13px',
+                fontWeight: '600',
+                border: '1px solid rgba(0, 210, 106, 0.3)',
+                fontFamily: 'var(--font-mono), monospace',
               },
               success: {
-                iconTheme: {
-                  primary: '#10b981',
-                  secondary: '#fff',
-                },
+                iconTheme: { primary: '#00d26a', secondary: '#0d1117' },
               },
               error: {
-                iconTheme: {
-                  primary: '#ef4444',
-                  secondary: '#fff',
-                },
+                iconTheme: { primary: '#ff4757', secondary: '#0d1117' },
               },
             }}
           />

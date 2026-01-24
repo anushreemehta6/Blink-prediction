@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react"
 
-const GLOW_COLOR = "68,205,215"
+const GLOW_COLOR = "0,210,106"
 const TILE_PATTERN = [
   { col: 1, row: 1 },
   { col: 1, row: 1 },
