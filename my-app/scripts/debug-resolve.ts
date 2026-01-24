@@ -34,9 +34,11 @@ async function diagnose() {
         functionName: 'positions', args: [POSITION_ID]
     }) as any;
     
-    const amount = pos[7];
-    const multiplier = pos[8];
-    const myPayout = (amount * multiplier) / 100n;
+   const amount = BigInt(pos[7]);
+const multiplier = BigInt(pos[8]);
+
+const myPayout = (amount * multiplier) / 100n;
+
 
     console.log(`\n📊 STATE ANALYSIS:`);
     console.log(`   Global Pending Payouts: $${formatUnits(pendingTotal, 6)}`);

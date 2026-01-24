@@ -16,9 +16,14 @@ import { toast } from 'react-hot-toast';
 import Home from '@/components/Home'; // Landing page if not connected
 import { PYTH_PRICE_IDS, AssetSymbol, getPriceId, MONAD_CONFIG } from '@/lib/constants';
 
+interface UserStatsProps {
+  address: `0x${string}`;
+}
+
 // --- CONTRACT CONSTANTS ---
 const THIRTY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_THIRTY_ENGINE_ADDRESS as Address;
 const USDC_ADDRESS = "0xD9a4C52EfA4EfA8F698EC9941061c9ef3387DBc6" as Address;
+
 
 const CONTRACT_ABI = [
   {
@@ -494,7 +499,7 @@ export default function HomePage() {
                 <Star size={12} style={{ color: currentColor.primary }} />
                 <span className="text-[10px] font-bold font-[family-name:var(--font-mono)] text-[var(--text-dim)] uppercase tracking-wider">Your Stats</span>
               </div>
-              <UserStats address={address!} />
+              <UserStats  address={address as `0x${string}`} />
             </div>
 
             <div>
@@ -550,7 +555,7 @@ export default function HomePage() {
                 <Activity size={12} className="text-[var(--accent-green)]" />
                 <span className="text-[10px] font-bold font-[family-name:var(--font-mono)] text-[var(--text-dim)] uppercase tracking-wider">Recent Rounds</span>
               </div>
-              <RecentRounds address={address!} />
+              <RecentRounds  address={address as `0x${string}`} />
             </div>
           </div>
         </div>

@@ -395,45 +395,51 @@ export default function InteractiveChart({
   }, [currentPrice, selectedAsset]);
 
   useEffect(() => {
-    if (!currentPrice) return;
-    
-    const currTime = Date.now();
-    setPriceHistory(prev => {
-      const lastPrice = prev.length > 0 ? prev[prev.length - 1].price : currentPrice;
-      const priceDiff = Math.abs(currentPrice - lastPrice);
-      const shouldInterpolate = priceDiff > (currentPrice * 0.001);
-      
-      const newPoints = [];
-      if (shouldInterpolate && prev.length > 0) {
-        const steps = 3;
-        for (let i = 1; i <= steps; i++) {
-          const ratio = i / (steps + 1);
-          newPoints.push({
-            time: currTime - ((steps - i + 1) * 16),
-            price: lastPrice + (currentPrice - lastPrice) * ratio
-          });
-        }
+  if (!currentPrice) return;
+
+  const currTime = Date.now();
+
+  setPriceHistory(prev => {
+    const lastPrice =
+      prev.length > 0 ? prev[prev.length - 1].price : currentPrice;
+
+    const priceDiff = Math.abs(currentPrice - lastPrice);
+    const shouldInterpolate = priceDiff > currentPrice * 0.001;
+
+    const newPoints: { time: number; price: number }[] = [];
+
+    if (shouldInterpolate && prev.length > 0) {
+      const steps = 3;
+      for (let i = 1; i <= steps; i++) {
+        const ratio = i / (steps + 1);
+        newPoints.push({
+          time: currTime - (steps - i + 1) * 16,
+          price: lastPrice + (currentPrice - lastPrice) * ratio,
+        });
       }
-      
-      newPoints.push({ time: currTime, price: currentPrice });
-      const updated = [...prev, ...newPoints];
-      return updated.filter(p => currTime - p.time < 60000);
-    });
+    }
 
-    setBlocks(prev => {
-      const newBlocks = prev.map(block => {
-        if (block.status !== 'PENDING') return block;
-        
-        // Only mark as MISSED when time expires, backend will handle WIN
-        if (Date.now() > block.expiryTime) {
-          return { ...block, status: 'MISSED' };
-        }
+    newPoints.push({ time: currTime, price: currentPrice });
 
-        return block;
-      });
-      return newBlocks;
-    });
-  }, [currentPrice]);
+    return [...prev, ...newPoints].filter(
+      p => currTime - p.time < 60000
+    );
+  });
+
+  setBlocks(prev =>
+    prev.map(block => {
+      if (block.status !== "PENDING") return block;
+
+      if (Date.now() > block.expiryTime) {
+        return { ...block, status: "MISSED" as const };
+      }
+
+      return block;
+    })
+  );
+}, [currentPrice]);
+
+
 
   // Poll backend for position status updates
   useEffect(() => {

@@ -10,7 +10,7 @@ import { dice } from '@/assets';
 
 declare global {
   interface Window {
-    ethereum?: unknown;
+    ethereum?: any;
   }
 }
 
