@@ -46,7 +46,13 @@ export default function HomePage() {
   const { isConnected, address } = useWallet();
 
   // UI State
-  const [selectedAsset, setSelectedAsset] = useState<AssetSymbol>('ETH');
+  const [selectedAsset, setSelectedAsset] = useState<AssetSymbol>(() => {
+    if (typeof window === 'undefined') return 'ETH';
+  
+    const stored = sessionStorage.getItem('selectedAsset');
+    return (stored as AssetSymbol) || 'ETH';
+  });
+  
   const [selectedAmount, setSelectedAmount] = useState(5);
   const [showStats, setShowStats] = useState(false); // Controls the Side Drawer
 
@@ -63,7 +69,7 @@ export default function HomePage() {
   // Socket State
   const [socket, setSocket] = useState<any>(null);
   const currentPriceId = getPriceId(selectedAsset);
-  
+
 
   // --- 1. SOCKET & LEADERBOARD INITIALIZATION ---
   useEffect(() => {
@@ -121,6 +127,12 @@ export default function HomePage() {
     const interval = setInterval(fetchBalance, 5000);
     return () => clearInterval(interval);
   }, [address]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    sessionStorage.setItem('selectedAsset', selectedAsset);
+  }, [selectedAsset]);
+  
 
   // --- 4. WALLET ACTIONS ---
   const handleApproveUSDC = async () => {
@@ -302,6 +314,7 @@ export default function HomePage() {
                   <button
                     key={asset}
                     onClick={() => setSelectedAsset(asset)}
+
                     className={`relative px-4 py-2 rounded-md text-sm font-bold font-[family-name:var(--font-mono)] transition-all duration-200 ${isSelected ? 'text-white' : 'text-[var(--text-dim)] hover:text-[var(--text-muted)]'
                       }`}
                     style={isSelected ? {
