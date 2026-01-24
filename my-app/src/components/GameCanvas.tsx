@@ -4,6 +4,21 @@ import { useRef, useEffect, useState } from 'react';
 import { AssetSymbol, ASSET_METADATA } from '@/lib/constants';
 import { TargetBlock, Viewport } from './GameEngine';
 
+// Particle type for animations
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+  type: 'burst' | 'shatter';
+  rotation?: number;
+  rotationSpeed?: number;
+}
+
 interface GameCanvasProps {
   currentPrice: number | null;
   priceHistory: { time: number; price: number }[];
@@ -53,15 +68,199 @@ export default function GameCanvas({
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   // Interaction State
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
 
+  // Animation State
+  const particlesRef = useRef<Particle[]>([]);
+  const processedBlocksRef = useRef<Set<string>>(new Set()); // Track which blocks already animated
+  const [animationTick, setAnimationTick] = useState(0); // Force re-renders for animations
+
   // Visual Constants
   const ASSET_COLOR = ASSET_METADATA[selectedAsset]?.color || '#0A696C';
   const MS_PER_PIXEL = 50 * viewport.zoom; // Zoom scaling for time axis
+
+  // Create burst particles (WIN animation) - BIGGER, FASTER, MORE SPREAD
+  const createBurstParticles = (x: number, y: number) => {
+    const colors = ['#4ade80', '#22c55e', '#86efac', '#fde047', '#ffffff', '#a3e635'];
+    const particles: Particle[] = [];
+
+    // Main explosion - fast outward burst
+    for (let i = 0; i < 50; i++) {
+      const angle = (Math.PI * 2 * i) / 50 + Math.random() * 0.3;
+      const speed = 8 + Math.random() * 12; // Much faster
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        maxLife: 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 6 + Math.random() * 8, // Bigger particles
+        type: 'burst',
+      });
+    }
+
+    // Inner ring - medium speed
+    for (let i = 0; i < 30; i++) {
+      const angle = (Math.PI * 2 * i) / 30 + Math.random() * 0.5;
+      const speed = 5 + Math.random() * 7;
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        maxLife: 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 4 + Math.random() * 6,
+        type: 'burst',
+      });
+    }
+
+    // Sparkles - upward floating
+    for (let i = 0; i < 25; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 6;
+      particles.push({
+        x: x + (Math.random() - 0.5) * 40,
+        y: y + (Math.random() - 0.5) * 40,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 5, // Upward bias
+        life: 1,
+        maxLife: 1,
+        color: '#fde047',
+        size: 3 + Math.random() * 4,
+        type: 'burst',
+      });
+    }
+
+    particlesRef.current.push(...particles);
+  };
+
+  // Create shatter particles (LOSS animation) - BIGGER, FASTER, MORE DRAMATIC
+  const createShatterParticles = (x: number, y: number, blockW: number, blockH: number) => {
+    const colors = ['#ef4444', '#dc2626', '#f87171', '#ff6b6b', '#ff8787'];
+    const particles: Particle[] = [];
+
+    // Explosion outward - main shards
+    for (let i = 0; i < 40; i++) {
+      const angle = (Math.PI * 2 * i) / 40 + Math.random() * 0.3;
+      const speed = 6 + Math.random() * 10; // Fast explosion
+
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        maxLife: 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 8 + Math.random() * 10, // Bigger shards
+        type: 'shatter',
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.5, // Faster spin
+      });
+    }
+
+    // Secondary debris
+    for (let i = 0; i < 25; i++) {
+      const offsetX = (Math.random() - 0.5) * blockW * 1.5;
+      const offsetY = (Math.random() - 0.5) * blockH * 1.5;
+      const angle = Math.atan2(offsetY, offsetX);
+      const speed = 4 + Math.random() * 8;
+
+      particles.push({
+        x: x + offsetX * 0.3,
+        y: y + offsetY * 0.3,
+        vx: Math.cos(angle) * speed + (Math.random() - 0.5) * 4,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        maxLife: 1,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 5 + Math.random() * 7,
+        type: 'shatter',
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.4,
+      });
+    }
+
+    // Dust cloud
+    for (let i = 0; i < 20; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 5;
+      particles.push({
+        x: x + (Math.random() - 0.5) * blockW,
+        y: y + (Math.random() - 0.5) * blockH,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 3,
+        life: 1,
+        maxLife: 1,
+        color: 'rgba(255,100,100,0.6)',
+        size: 3 + Math.random() * 4,
+        type: 'burst', // Use burst type for round dust
+      });
+    }
+
+    particlesRef.current.push(...particles);
+  };
+
+  // Update and draw particles - OPTIMIZED for smooth animation
+  const updateParticles = (ctx: CanvasRenderingContext2D) => {
+    const particles = particlesRef.current;
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+
+      // Update position - faster movement
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.08; // Less gravity = more spread
+      p.vx *= 0.99; // Slight air resistance
+      p.life -= 0.015; // Slower decay = lasts longer
+
+      // Update rotation for shatter particles
+      if (p.rotation !== undefined && p.rotationSpeed !== undefined) {
+        p.rotation += p.rotationSpeed;
+      }
+
+      // Remove dead particles
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+        continue;
+      }
+
+      // Draw particle
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p.life * 1.5); // Fade out more gradually
+
+      if (p.type === 'burst') {
+        // Draw circular burst particle with glow
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = p.color;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * (0.5 + p.life * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Draw shard (rotated rectangle) with glow
+        ctx.translate(p.x, p.y);
+        if (p.rotation !== undefined) {
+          ctx.rotate(p.rotation);
+        }
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = p.color;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+      }
+
+      ctx.restore();
+    }
+  };
 
   // --- 1. COORDINATE SYSTEM ---
   // Converts "World Data" (Time/Price) to "Screen Pixels" (X/Y)
@@ -230,49 +429,73 @@ export default function GameCanvas({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // D. Draw Blocks (The Bets)
+    // D. Draw Blocks (The Bets) and trigger animations
+    const blockW = 60;
+    const blockH = 40;
+
     blocks.forEach(block => {
         const { x, y } = worldToScreen(block.expiryTime, block.targetPrice, width, height);
-        const blockW = 60; // Fixed visual size for now
-        const blockH = 40;
-        
+
+        // Check if this block just changed status and trigger animation
+        if (block.status === 'HIT' && !processedBlocksRef.current.has(block.id + '_hit')) {
+            processedBlocksRef.current.add(block.id + '_hit');
+            createBurstParticles(x, y);
+        } else if (block.status === 'MISSED' && !processedBlocksRef.current.has(block.id + '_miss')) {
+            processedBlocksRef.current.add(block.id + '_miss');
+            createShatterParticles(x, y, blockW, blockH);
+        }
+
         // Collision / Status Color
         let color = '#ffffff';
         let glow = 0;
-        
+        let shouldDraw = true;
+
         if (block.status === 'HIT') {
             color = '#4ade80'; // Green
-            glow = 20;
+            glow = 25;
+            // Fade out the block after animation starts
+            const timeSinceHit = block.hitTime ? Date.now() - block.hitTime : 500;
+            if (timeSinceHit > 500) {
+              ctx.globalAlpha = Math.max(0, 1 - (timeSinceHit - 500) / 1000);
+              if (ctx.globalAlpha <= 0) shouldDraw = false;
+            }
         } else if (block.status === 'MISSED') {
             color = '#ef4444'; // Red
-            ctx.globalAlpha = 0.5; // Fade out
+            // Quick fade out for missed blocks
+            ctx.globalAlpha = 0.3;
         } else {
             color = ASSET_COLOR; // Pending
             glow = 10;
         }
 
-        // 1. Draw Glow/Shadow
-        ctx.shadowBlur = glow;
-        ctx.shadowColor = color;
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'; // Dark glass background
-        ctx.fillRect(x - blockW/2, y - blockH/2, blockW, blockH);
-        
-        // 2. Draw Border
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x - blockW/2, y - blockH/2, blockW, blockH);
-        
-        // 3. Draw Text
-        ctx.shadowBlur = 0;
+        if (shouldDraw) {
+          // 1. Draw Glow/Shadow
+          ctx.shadowBlur = glow;
+          ctx.shadowColor = color;
+          ctx.fillStyle = 'rgba(0,0,0,0.6)'; // Dark glass background
+          ctx.fillRect(x - blockW/2, y - blockH/2, blockW, blockH);
+
+          // 2. Draw Border
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x - blockW/2, y - blockH/2, blockW, blockH);
+
+          // 3. Draw Text
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${block.multiplier.toFixed(2)}x`, x, y);
+        }
+
         ctx.globalAlpha = 1.0;
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${block.multiplier.toFixed(2)}x`, x, y);
     });
 
-    // E. Draw Hover Crosshair
+    // E. Draw Particles (animations)
+    updateParticles(ctx);
+
+    // F. Draw Hover Crosshair
     if (mousePos) {
         ctx.strokeStyle = 'rgba(255,255,255,0.3)';
         ctx.setLineDash([2, 2]);
@@ -284,8 +507,30 @@ export default function GameCanvas({
         ctx.stroke();
     }
 
-  }, [currentPrice, priceHistory, blocks, viewport, visibleBounds, mousePos, selectedAsset]);
+  }, [currentPrice, priceHistory, blocks, viewport, visibleBounds, mousePos, selectedAsset, animationTick]);
 
+  // --- ANIMATION LOOP for particles ---
+  useEffect(() => {
+    let animationId: number;
+    let isRunning = true;
+
+    const animate = () => {
+      if (!isRunning) return;
+
+      if (particlesRef.current.length > 0) {
+        // Force re-render to update particle positions
+        setAnimationTick(t => t + 1);
+      }
+
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animationId = requestAnimationFrame(animate);
+    return () => {
+      isRunning = false;
+      cancelAnimationFrame(animationId);
+    };
+  }, []); // Run once, always animate
 
   // --- 3. INTERACTION HANDLERS ---
 
