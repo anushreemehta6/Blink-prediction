@@ -122,7 +122,7 @@ export default function ConnectWallet() {
       >
         
          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex items-center justify-center text-2xl shadow-lg">
-              🐮
+              B
             </div>
        
         <div className="text-left hidden sm:block">
@@ -149,7 +149,7 @@ export default function ConnectWallet() {
           {/* Profile Section */}
           <div className="flex items-center gap-3 pb-4 border-b border-gray-100">
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-400 to-blue-500 flex items-center justify-center text-2xl shadow-lg">
-              🐮
+              B
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-gray-800 text-sm truncate">

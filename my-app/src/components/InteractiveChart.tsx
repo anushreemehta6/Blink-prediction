@@ -315,7 +315,8 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Trophy } from 'lucide-react';
-import { AssetSymbol, ASSET_METADATA } from '@/lib/constants';
+// ✅ IMPORT CONSTANTS: This fixes the missing colors/assets issues
+import { ASSET_METADATA, AssetSymbol } from '@/lib/constants';
 
 interface TargetBlock {
   id: string;
@@ -334,7 +335,7 @@ interface InteractiveChartProps {
   currentPrice: number | null;
   userAddress?: string;
   selectedAmount?: number;
-  selectedAsset: AssetSymbol;
+  selectedAsset: AssetSymbol; // ✅ Uses the imported type (includes BNB)
   onPlaceBet: (targetPrice: number, amount: number, multiplier: number) => Promise<void>;
 }
 
@@ -352,42 +353,42 @@ export default function InteractiveChart({
   const [isPlacing, setIsPlacing] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  // Hover State
   const [mousePos, setMousePos] = useState<{x: number, y: number} | null>(null);
   const [hoverData, setHoverData] = useState<{price: number, mult: number} | null>(null);
 
   const DURATION_SECONDS = 30;
   const CHART_HEIGHT = 400;
   const PADDING = { top: 40, right: 100, bottom: 40, left: 60 };
-  const FUTURE_SECONDS = 30;
+  const TOTAL_COLUMNS = 6;
+  const HISTORY_COLUMNS = 2; 
 
-  // Get current asset color
-  const assetColor = ASSET_METADATA[selectedAsset].color;
+  // ✅ DYNAMIC COLOR: Fetches the correct color from your constants (e.g., Orange for BTC)
+  const assetColor = ASSET_METADATA[selectedAsset]?.color || '#0A696C';
 
-  // Reset price history when asset changes
   useEffect(() => {
     setPriceHistory([]);
     setBlocks([]);
   }, [selectedAsset]);
 
-  // Animation Loop
   useEffect(() => {
-    const interval = setInterval(() => {
+    let rafId: number;
+    const animate = () => {
       setNow(Date.now());
-    }, 50);
-    return () => clearInterval(interval);
+      rafId = requestAnimationFrame(animate);
+    };
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
   }, []);
 
-  // Initialize and update price history
   useEffect(() => {
     if (currentPrice && priceHistory.length === 0) {
       const data: { time: number; price: number }[] = [];
       const currTime = Date.now();
       let price = currentPrice;
       for (let i = 60; i > 0; i--) {
-        const change = (Math.random() - 0.5) * (currentPrice * 0.0005); 
+        const change = (Math.random() - 0.5) * (currentPrice * 0.0003); 
         price += change;
-        data.push({ time: currTime - (i * 1000), price });
+        data.push({ time: currTime - (i * 500), price });
       }
       setPriceHistory(data);
     }
@@ -395,26 +396,38 @@ export default function InteractiveChart({
 
   useEffect(() => {
     if (!currentPrice) return;
+    
+    const currTime = Date.now();
     setPriceHistory(prev => {
-      const currTime = Date.now();
-      const newHistory = [...prev, { time: currTime, price: currentPrice }];
-      return newHistory.filter(p => currTime - p.time < 60000);
+      const lastPrice = prev.length > 0 ? prev[prev.length - 1].price : currentPrice;
+      const priceDiff = Math.abs(currentPrice - lastPrice);
+      const shouldInterpolate = priceDiff > (currentPrice * 0.001);
+      
+      const newPoints = [];
+      if (shouldInterpolate && prev.length > 0) {
+        const steps = 3;
+        for (let i = 1; i <= steps; i++) {
+          const ratio = i / (steps + 1);
+          newPoints.push({
+            time: currTime - ((steps - i + 1) * 16),
+            price: lastPrice + (currentPrice - lastPrice) * ratio
+          });
+        }
+      }
+      
+      newPoints.push({ time: currTime, price: currentPrice });
+      const updated = [...prev, ...newPoints];
+      return updated.filter(p => currTime - p.time < 60000);
     });
 
-    // Check Hits
     setBlocks(prev => {
       const newBlocks = prev.map(block => {
         if (block.status !== 'PENDING') return block;
-
-        const hit = block.isUpward
-          ? currentPrice >= block.targetPrice
-          : currentPrice <= block.targetPrice;
-
-        if (hit) {
-          return { ...block, status: 'HIT', hitTime: Date.now() };
+        
+        // Only mark as MISSED when time expires, backend will handle WIN
+        if (Date.now() > block.expiryTime) {
+          return { ...block, status: 'MISSED' };
         }
-
-        if (Date.now() > block.expiryTime) return { ...block, status: 'MISSED' };
 
         return block;
       });
@@ -422,7 +435,38 @@ export default function InteractiveChart({
     });
   }, [currentPrice]);
 
-  // Price bounds calculation
+  // Poll backend for position status updates
+  useEffect(() => {
+    if (!userAddress || blocks.length === 0) return;
+
+    const checkPositionStatuses = async () => {
+      for (const block of blocks) {
+        if (block.status !== 'PENDING') continue;
+        
+        try {
+          const res = await fetch(`/api/predictions/status?positionId=${block.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === 'WON') {
+              setBlocks(prev => prev.map(b => 
+                b.id === block.id ? { ...b, status: 'HIT', hitTime: Date.now() } : b
+              ));
+            } else if (data.status === 'LOST') {
+              setBlocks(prev => prev.map(b => 
+                b.id === block.id ? { ...b, status: 'MISSED' } : b
+              ));
+            }
+          }
+        } catch (e) {
+          // Silently continue
+        }
+      }
+    };
+
+    const interval = setInterval(checkPositionStatuses, 3000);
+    return () => clearInterval(interval);
+  }, [userAddress, blocks]);
+
   const getBounds = () => {
     if (priceHistory.length === 0) return { min: 0, max: 100, range: 100 };
     const prices = priceHistory.map(p => p.price);
@@ -448,13 +492,14 @@ export default function InteractiveChart({
 
   const getXFromTime = (time: number, width: number) => {
     const chartWidth = width - PADDING.left - PADDING.right;
-    const nowX = PADDING.left + chartWidth;
-    const pixelsPerMs = chartWidth / (60 * 1000);
+    const nowX = PADDING.left + (chartWidth * (HISTORY_COLUMNS / TOTAL_COLUMNS));
+    const futureColumns = TOTAL_COLUMNS - HISTORY_COLUMNS;
+    const futureWidthPixels = chartWidth * (futureColumns / TOTAL_COLUMNS);
+    const pixelsPerMs = futureWidthPixels / (DURATION_SECONDS * 1000);
     const diffMs = time - now;
     return nowX + (diffMs * pixelsPerMs);
   };
 
-  // Render Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = chartContainerRef.current;
@@ -474,18 +519,19 @@ export default function InteractiveChart({
     ctx.clearRect(0, 0, width, CHART_HEIGHT);
 
     const chartWidth = width - PADDING.left - PADDING.right;
-    const nowX = PADDING.left + chartWidth;
     const chartAreaHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
+    const nowX = PADDING.left + (chartWidth * (HISTORY_COLUMNS / TOTAL_COLUMNS));
 
-    // Grid
-    ctx.strokeStyle = 'rgba(10, 105, 108, 0.3)';
+    ctx.strokeStyle = 'rgba(10, 105, 108, 0.1)';
     ctx.lineWidth = 1;
+
     for (let i = 0; i <= 10; i++) {
       const y = PADDING.top + (chartAreaHeight / 10) * i;
       ctx.beginPath(); 
       ctx.moveTo(PADDING.left, y); 
       ctx.lineTo(width - PADDING.right, y); 
       ctx.stroke();
+      
       const priceAtLine = getPriceFromY(y);
       ctx.fillStyle = 'rgba(10, 105, 108, 0.6)';
       ctx.font = '11px sans-serif';
@@ -493,105 +539,129 @@ export default function InteractiveChart({
       ctx.fillText(priceAtLine.toFixed(2), PADDING.left - 8, y + 4);
     }
     
-    for (let x = PADDING.left; x <= width - PADDING.right; x += chartWidth / 6) {
-      ctx.beginPath(); 
-      ctx.moveTo(x, PADDING.top); 
-      ctx.lineTo(x, CHART_HEIGHT - PADDING.bottom); 
-      ctx.stroke();
+    for (let i = 0; i <= TOTAL_COLUMNS; i++) {
+        const x = PADDING.left + (chartWidth / TOTAL_COLUMNS) * i;
+        ctx.beginPath(); 
+        ctx.moveTo(x, PADDING.top); 
+        ctx.lineTo(x, CHART_HEIGHT - PADDING.bottom); 
+        ctx.stroke();
     }
 
-    // Clipping region
     ctx.save();
     ctx.beginPath();
-    ctx.rect(PADDING.left, PADDING.top, chartWidth, chartAreaHeight);
+    ctx.rect(PADDING.left, PADDING.top, (nowX - PADDING.left), chartAreaHeight);
     ctx.clip();
 
-    // Price Line with asset color
     if (priceHistory.length > 1) {
       ctx.shadowColor = assetColor;
       ctx.shadowBlur = 15;
       ctx.strokeStyle = assetColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2.5;
       ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      
       ctx.beginPath();
-      priceHistory.forEach((p, i) => {
-        const x = getXFromTime(p.time, width);
-        const y = getYFromPrice(p.price);
-        if (i === 0) ctx.moveTo(x, y); 
-        else ctx.lineTo(x, y);
-      });
+      const points = priceHistory.map(p => ({
+        x: getXFromTime(p.time, width),
+        y: getYFromPrice(p.price)
+      }));
+      
+      ctx.moveTo(points[0].x, points[0].y);
+      
+      for (let i = 1; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      }
+      
+      if (points.length > 1) {
+        const last = points[points.length - 1];
+        const secondLast = points[points.length - 2];
+        ctx.quadraticCurveTo(secondLast.x, secondLast.y, last.x, last.y);
+      }
+      
       ctx.stroke();
       ctx.shadowBlur = 0;
     }
-
     ctx.restore();
 
-    // "NOW" Line
-    ctx.strokeStyle = 'rgba(10, 105, 108, 0.5)';
+    ctx.strokeStyle = assetColor;
     ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 2;
     ctx.beginPath(); 
     ctx.moveTo(nowX, PADDING.top); 
     ctx.lineTo(nowX, CHART_HEIGHT - PADDING.bottom); 
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(10, 105, 108, 0.8)';
-    ctx.font = '12px sans-serif';
+    
+    ctx.fillStyle = assetColor;
+    ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('NOW', nowX, PADDING.top - 8);
+    ctx.fillText('NOW', nowX, PADDING.top - 10);
 
-    // Current Price Dot
     if (currentPrice) {
       const y = Math.max(PADDING.top, Math.min(CHART_HEIGHT - PADDING.bottom, getYFromPrice(currentPrice)));
+      
       ctx.strokeStyle = assetColor;
+      ctx.globalAlpha = 0.5;
       ctx.setLineDash([2, 2]);
       ctx.beginPath(); 
       ctx.moveTo(nowX, y); 
-      ctx.lineTo(PADDING.left, y); 
+      ctx.lineTo(width - PADDING.right, y);
       ctx.stroke();
+      ctx.globalAlpha = 1.0;
       ctx.setLineDash([]);
+
       ctx.fillStyle = assetColor;
       ctx.beginPath(); 
-      ctx.arc(nowX, y, 5, 0, Math.PI * 2); 
+      ctx.arc(nowX, y, 6, 0, Math.PI * 2); 
       ctx.fill();
-
-      ctx.fillStyle = assetColor;
-      ctx.fillRect(PADDING.left - 55, y - 10, 52, 20);
-      ctx.fillStyle = '#fff';
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(currentPrice.toFixed(2), PADDING.left - 6, y + 4);
+      
+      ctx.beginPath();
+      ctx.strokeStyle = assetColor;
+      ctx.lineWidth = 1;
+      ctx.arc(nowX, y, 12, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
-  }, [priceHistory, currentPrice, minPrice, maxPrice, now, assetColor]);
+  }, [priceHistory, currentPrice, minPrice, maxPrice, priceRange, now, assetColor, getYFromPrice, getXFromTime]);
 
-  // Mouse interaction
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!chartContainerRef.current || !currentPrice) return;
-    const rect = chartContainerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  const handleMouseMove = useMemo(() => {
+    let rafId: number | null = null;
     
-    const width = rect.width;
-    const chartWidth = width - PADDING.left - PADDING.right;
-    const nowX = PADDING.left + chartWidth;
-    
-    if (x > nowX) {
-      setMousePos({ x, y });
-      const targetPrice = getPriceFromY(y);
+    return (e: React.MouseEvent<HTMLDivElement>) => {
+      if (rafId) return;
+      
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        
+        if (!chartContainerRef.current || !currentPrice) return;
+        const rect = chartContainerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const width = rect.width;
+        const chartWidth = width - PADDING.left - PADDING.right;
+        const nowX = PADDING.left + (chartWidth * (HISTORY_COLUMNS / TOTAL_COLUMNS));
+        
+        if (x > nowX && x < (width - PADDING.right)) {
+          setMousePos({ x, y });
+          const targetPrice = getPriceFromY(y);
 
-      // Smart Contract Math
-      const diff = Math.abs(targetPrice - currentPrice);
-      const distanceBps = (diff * 10000) / currentPrice;
-      const bonus = (distanceBps * 2000) / 1000;
-      let mult = (110 + bonus) / 100;
-      mult = Math.min(Math.max(mult, 1.1), 50.0);
+          const diff = Math.abs(targetPrice - currentPrice);
+          const distanceBps = (diff * 10000) / currentPrice;
+          const bonus = (distanceBps * 2000) / 1000;
+          let mult = (110 + bonus) / 100;
+          mult = Math.min(Math.max(mult, 1.1), 50.0);
 
-      setHoverData({ price: targetPrice, mult });
-    } else {
-      setMousePos(null);
-      setHoverData(null);
-    }
-  };
+          setHoverData({ price: targetPrice, mult });
+        } else {
+          setMousePos(null);
+          setHoverData(null);
+        }
+      });
+    };
+  }, [currentPrice, getPriceFromY]);
 
   const handleChartClick = () => {
     if (!mousePos || !hoverData || !currentPrice || isPlacing) return;
@@ -619,35 +689,34 @@ export default function InteractiveChart({
     <div className="h-[400px]">
       <div
         ref={chartContainerRef}
-        className="w-full h-full relative rounded-xl overflow-hidden bg-white cursor-crosshair shadow-lg"
+        className="w-full h-full relative rounded-xl overflow-hidden bg-[#05181e] cursor-crosshair shadow-2xl border border-white/5"
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setMousePos(null)}
         onClick={handleChartClick}
       >
         <canvas ref={canvasRef} className="absolute inset-0 z-0" />
 
-        {/* GHOST BLOCK */}
         {mousePos && hoverData && (
           <div className="pointer-events-none z-10">
-            <div className="absolute h-[1px] w-full bg-[#0A696C]/30 border-t border-dashed border-[#0A696C]/50" style={{ top: mousePos.y }} />
-            <div className="absolute w-[1px] h-full bg-[#0A696C]/30 border-l border-dashed border-[#0A696C]/50" style={{ left: mousePos.x }} />
-            <div className={`absolute w-16 h-16 border-2 flex flex-col items-center justify-center rounded-lg bg-opacity-20 backdrop-blur-sm
-              ${hoverData.price > (currentPrice || 0) ? 'border-[#0A696C] bg-[#0A696C]/20' : 'border-[#B76E79] bg-[#B76E79]/20'}`}
+            <div className="absolute h-[1px] w-full bg-white/20 border-t border-dashed border-white/40" style={{ top: mousePos.y }} />
+            <div className="absolute w-[1px] h-full bg-white/20 border-l border-dashed border-white/40" style={{ left: mousePos.x }} />
+            
+            <div className={`absolute w-20 h-16 border-2 flex flex-col items-center justify-center rounded-xl bg-black/60 backdrop-blur-md shadow-[0_0_15px_rgba(0,0,0,0.5)]
+              ${hoverData.price > (currentPrice || 0) ? 'border-green-400 text-green-400' : 'border-red-400 text-red-400'}`}
               style={{ left: mousePos.x, top: mousePos.y, transform: 'translate(-50%, -50%)' }}>
-              <span className="text-[#0A696C] font-bold text-sm">${selectedAmount}</span>
-              <span className="text-[10px] font-bold text-[#0A696C]/70">{hoverData.mult.toFixed(2)}x</span>
+              
+              <span className="font-black text-lg">${selectedAmount}</span>
+              <span className="text-xs font-bold opacity-80">{hoverData.mult.toFixed(2)}x</span>
             </div>
           </div>
         )}
 
-        {/* MOVING BLOCKS */}
         {blocks.map(block => {
            const width = chartContainerRef.current?.clientWidth || 0;
            const x = getXFromTime(block.expiryTime, width);
            const y = getYFromPrice(block.targetPrice);
-           const isRecentHit = block.status === 'HIT' && block.hitTime && (now - block.hitTime) < 800;
-
-           if (x < 0) return null;
+           
+           if (x < PADDING.left) return null;
 
            return (
              <div
@@ -659,75 +728,30 @@ export default function InteractiveChart({
                  transform: 'translate(-50%, -50%)'
                }}
              >
-               {isRecentHit && (
-                 <>
-                   <div
-                     className="absolute rounded-full border-4 border-green-400 animate-ping"
-                     style={{
-                       width: 80,
-                       height: 80,
-                       left: '50%',
-                       top: '50%',
-                       transform: 'translate(-50%, -50%)',
-                       animationDuration: '0.6s'
-                     }}
-                   />
-                   <div
-                     className="absolute rounded-full border-2 border-yellow-300 animate-ping"
-                     style={{
-                       width: 100,
-                       height: 100,
-                       left: '50%',
-                       top: '50%',
-                       transform: 'translate(-50%, -50%)',
-                       animationDuration: '0.8s',
-                       animationDelay: '0.1s'
-                     }}
-                   />
-                   <div
-                     className="absolute rounded-full bg-green-400 animate-pulse"
-                     style={{
-                       width: 70,
-                       height: 70,
-                       left: '50%',
-                       top: '50%',
-                       transform: 'translate(-50%, -50%)',
-                       filter: 'blur(15px)',
-                       opacity: 0.7
-                     }}
-                   />
-                   <div
-                     className="absolute font-black text-green-400 text-lg animate-bounce whitespace-nowrap"
-                     style={{
-                       left: '50%',
-                       top: -30,
-                       transform: 'translateX(-50%)',
-                       textShadow: '0 0 10px rgba(74, 222, 128, 0.8), 0 0 20px rgba(74, 222, 128, 0.5)'
-                     }}
-                   >
-                     WIN!
-                   </div>
-                 </>
+               {block.status === 'HIT' && (
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                    <div className="w-20 h-20 bg-green-500/30 rounded-full animate-ping" />
+                    <div className="absolute inset-0 flex items-center justify-center font-black text-green-400 text-xl animate-bounce drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+                      WON
+                    </div>
+                  </div>
                )}
 
                <div
-                 className={`w-14 h-14 flex flex-col items-center justify-center rounded-lg border-2 shadow-lg transition-all
-                   ${block.status === 'HIT' ? 'bg-green-500 border-green-300 scale-125 z-20' :
-                     block.status === 'MISSED' ? 'bg-[#B76E79]/50 border-[#B76E79] opacity-50' :
-                     'bg-[#0A696C] border-[#A1BCBD]'}
+                 className={`w-12 h-12 flex flex-col items-center justify-center rounded-lg border-2 shadow-lg transition-all duration-300
+                   ${block.status === 'HIT' ? 'bg-green-500 border-green-300 scale-110 shadow-green-500/50' :
+                     block.status === 'MISSED' ? 'bg-red-900/50 border-red-800 opacity-40 grayscale' :
+                     'bg-[#0A696C] border-[#A1BCBD] shadow-[#0A696C]/40'}
                  `}
-                 style={{
-                   transition: block.status === 'HIT' ? 'all 0.2s ease-out' : 'all 0.075s'
-                 }}
                >
-                 {block.status === 'HIT' && <Trophy size={14} className="text-white mb-0.5" />}
-                 <span className="text-white font-black text-xs">${block.amount}</span>
-                 <span className="text-white/70 text-[9px] font-bold">{block.multiplier.toFixed(2)}x</span>
+                 {block.status === 'HIT' && <Trophy size={12} className="text-white mb-0.5" />}
+                 <span className="text-white font-bold text-xs">${block.amount}</span>
+                 <span className="text-white/60 text-[8px] font-mono">{block.multiplier.toFixed(2)}x</span>
                </div>
-
+               
                {block.status === 'PENDING' && (
-                 <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-[#0A696C] text-white text-[9px] px-2 py-0.5 rounded-full whitespace-nowrap">
-                   {Math.max(0, ((block.expiryTime - now)/1000)).toFixed(1)}s
+                 <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 font-mono text-[10px] text-white/50">
+                   {((block.expiryTime - now)/1000).toFixed(1)}s
                  </div>
                )}
              </div>

@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Trophy, Activity, Wallet, X, Menu, Loader2 } from 'lucide-react'; 
+import { io } from 'socket.io-client';
 import { useWallet } from '@/context/WalletContext';
-import InteractiveChart from '@/components/InteractiveChart';
+// ✅ Import the new GameEngine (The Logic Layer)
+import GameEngine from '@/components/GameEngine'; 
 import AutoTradeSetup from '@/components/AutoTradeSetup';
 import ConnectWallet from '@/components/ConnectWallet';
 import UserStats from '@/components/UserStats';
@@ -10,13 +13,10 @@ import RecentRounds from '@/components/RecentRounds';
 import { createWalletClient, createPublicClient, http, custom, parseUnits, parseEther, formatUnits, type Address } from 'viem';
 import { monadTestnet } from '@/lib/chains';
 import { toast } from 'react-hot-toast';
-import Home from '@/components/Home';
-import { PYTH_PRICE_IDS, AssetSymbol, getPriceId, ASSET_METADATA, MONAD_CONFIG } from '@/lib/constants';
+import Home from '@/components/Home'; // Landing page if not connected
+import { PYTH_PRICE_IDS, AssetSymbol, getPriceId, MONAD_CONFIG } from '@/lib/constants';
 
-/* ==================================================================================
-   CONFIGURATION & CONSTANTS
-   ================================================================================== */
-
+// --- CONTRACT CONSTANTS ---
 const THIRTY_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_THIRTY_ENGINE_ADDRESS as Address;
 const USDC_ADDRESS = "0xD9a4C52EfA4EfA8F698EC9941061c9ef3387DBc6" as Address;
 
@@ -42,167 +42,91 @@ const CONTRACT_ABI = [
   },
 ] as const;
 
-/* ==================================================================================
-   MAIN COMPONENT
-   ================================================================================== */
-
 export default function HomePage() {
   const { isConnected, address } = useWallet();
+  
+  // UI State
   const [selectedAsset, setSelectedAsset] = useState<AssetSymbol>('ETH');
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
-  const [prevPrice, setPrevPrice] = useState<number | null>(null);
-  const [priceDirection, setPriceDirection] = useState<'up' | 'down' | null>(null);
+  const [selectedAmount, setSelectedAmount] = useState(5);
+  const [showStats, setShowStats] = useState(false); // Controls the Side Drawer
+  
+  // Data State
+  const [usdcBalance, setUsdcBalance] = useState<string>("0.00");
+  const [liveUsers, setLiveUsers] = useState<number>(0);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  
+  // Automation State
   const [isAutoPilotEnabled, setIsAutoPilotEnabled] = useState(false);
   const [isCheckingAutoPilot, setIsCheckingAutoPilot] = useState(true);
-  const [selectedAmount, setSelectedAmount] = useState(5);
-  const [usdcBalance, setUsdcBalance] = useState<string>("0.00");
 
-  // Get current asset's price ID
+  // Socket State
+  const [socket, setSocket] = useState<any>(null);
   const currentPriceId = getPriceId(selectedAsset);
-  const currentAssetMeta = ASSET_METADATA[selectedAsset];
 
-  // Check if auto-pilot is already enabled on mount
+  // --- 1. SOCKET & LEADERBOARD INITIALIZATION ---
   useEffect(() => {
-    async function checkAutoPilot() {
-      if (!address) {
-        setIsCheckingAutoPilot(false);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/session/status?address=${address}`);
-        if (res.ok) {
-          const data = await res.json();
-          setIsAutoPilotEnabled(data.isActive || false);
-        }
-      } catch (error) {
-        console.error('Failed to check auto-pilot status:', error);
-      } finally {
-        setIsCheckingAutoPilot(false);
-      }
-    }
-    checkAutoPilot();
-  }, [address]);
+    const newSocket = io('http://localhost:3001');
+    setSocket(newSocket);
+    return () => { newSocket.disconnect(); };
+  }, []);
 
-  // Fetch current price for selected asset
-  useEffect(() => {
-    async function fetchPrice() {
-      try {
-        const res = await fetch(`/api/pyth/price?asset=${selectedAsset}`);
-        if (res.ok) {
-          const data = await res.json();
-          const newPrice = data.price;
-
-          // Track price direction
-          setCurrentPrice(prev => {
-            if (prev !== null && newPrice !== prev) {
-              setPrevPrice(prev);
-              setPriceDirection(newPrice > prev ? 'up' : 'down');
-            }
-            return newPrice;
-          });
-        }
-      } catch (error) { console.error('Price fetch error'); }
-    }
-    fetchPrice();
-    const interval = setInterval(fetchPrice, 2000);
-    return () => clearInterval(interval);
-  }, [selectedAsset]);
-
-  // Fetch USDC balance
   useEffect(() => {
     if (!address) return;
+    
+    // Fetch Leaderboard
+    fetch(`/api/leaderboard?symbol=${selectedAsset}`)
+      .then(res => res.json())
+      .then(data => setLeaderboard(Array.isArray(data) ? data : []))
+      .catch(e => console.error("Leaderboard error:", e));
 
-    const publicClient = createPublicClient({
-      chain: monadTestnet,
-      transport: http()
-    });
+    // Join Socket Room
+    if (socket) {
+      socket.emit('join-asset-room', selectedAsset);
+      socket.on('room-count-update', (count: number) => setLiveUsers(count));
+      return () => { socket.off('room-count-update'); };
+    }
+  }, [selectedAsset, address, socket]);
 
+  // --- 2. CHECK AUTO-PILOT STATUS ---
+  useEffect(() => {
+    if (!address) { setIsCheckingAutoPilot(false); return; }
+    
+    fetch(`/api/session/status?address=${address}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setIsAutoPilotEnabled(data?.isActive || false))
+      .catch(console.error)
+      .finally(() => setIsCheckingAutoPilot(false));
+  }, [address]);
+
+  // --- 3. POLL USDC BALANCE ---
+  useEffect(() => {
+    if (!address) return;
+    const publicClient = createPublicClient({ chain: monadTestnet, transport: http() });
+    
     const fetchBalance = async () => {
       try {
         const balance = await publicClient.readContract({
-          address: USDC_ADDRESS as Address,
-          abi: [{
-            name: 'balanceOf',
-            type: 'function',
-            inputs: [{ name: 'account', type: 'address' }],
-            outputs: [{ name: 'balance', type: 'uint256' }]
-          }],
+          address: USDC_ADDRESS,
+          abi: [{ name: 'balanceOf', type: 'function', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: 'balance', type: 'uint256' }] }],
           functionName: 'balanceOf',
           args: [address as Address],
         }) as bigint;
-
-        const formatted = formatUnits(balance, 6);
-        setUsdcBalance(Number(formatted).toLocaleString(undefined, {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        }));
-      } catch (e) {
-        console.error("Balance fetch error:", e);
-      }
+        setUsdcBalance(Number(formatUnits(balance, 6)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      } catch (e) { console.error(e); }
     };
-
+    
     fetchBalance();
     const interval = setInterval(fetchBalance, 5000);
     return () => clearInterval(interval);
   }, [address]);
 
-  // Permanent Deactivate Logic
-  const handleDisableAutoPilot = () => {
-    if (!address) return;
-
-    toast((t) => (
-      <div className="flex flex-col gap-3">
-        <p className="font-medium">Disable 1-Click Trading?</p>
-        <p className="text-sm text-gray-400">You can re-enable it anytime.</p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              toast.dismiss(t.id);
-              confirmDisable();
-            }}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 transition-all"
-          >
-            Disable
-          </button>
-          <button
-            onClick={() => toast.dismiss(t.id)}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg text-sm font-bold hover:bg-gray-700 transition-all"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    ), { duration: 10000 });
-  };
-
-  const confirmDisable = async () => {
-    if (!address) return;
-    const toastId = toast.loading("Disabling Mode...");
-    try {
-      const res = await fetch('/api/session/deactivate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address }),
-      });
-      if (res.ok) {
-        setIsAutoPilotEnabled(false);
-        toast.success("1-Click Trading Disabled", { id: toastId });
-      } else {
-        toast.error("Failed to disable", { id: toastId });
-      }
-    } catch (error) {
-      toast.error("Error disabling session", { id: toastId });
-    }
-  };
-
-  // Approve USDC for Manual Trading
+  // --- 4. WALLET ACTIONS ---
   const handleApproveUSDC = async () => {
     if (!address) return;
     const toastId = toast.loading("Approving USDC...");
     try {
       const walletClient = createWalletClient({ chain: monadTestnet, transport: custom(window.ethereum!) });
       const publicClient = createPublicClient({ chain: monadTestnet, transport: http() });
-
       const hash = await walletClient.writeContract({
         address: USDC_ADDRESS,
         abi: [{ name: 'approve', type: 'function', inputs: [{ name: 's', type: 'address' }, { name: 'a', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] }],
@@ -210,296 +134,273 @@ export default function HomePage() {
         args: [THIRTY_CONTRACT_ADDRESS, parseUnits("1000000", 6)],
         account: address as Address
       });
-      
       await publicClient.waitForTransactionReceipt({ hash });
       toast.success("USDC Approved!", { id: toastId });
-    } catch (e) { 
-        console.error(e);
-        toast.error("Approval failed", { id: toastId }); 
-    }
+    } catch (e) { toast.error("Approval failed", { id: toastId }); }
   };
 
-  // Handle placing bet
+  const handleDisableAutoPilot = async () => {
+    const toastId = toast.loading("Disabling...");
+    try {
+      const res = await fetch('/api/session/deactivate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address }) });
+      if (res.ok) {
+        setIsAutoPilotEnabled(false);
+        toast.success("Disabled", { id: toastId });
+      }
+    } catch (error) { toast.error("Error", { id: toastId }); }
+  };
+
+  // --- 5. BETTING LOGIC (Called by GameEngine) ---
   const handlePlaceBet = async (targetPrice: number, amount: number, multiplier: number) => {
-    if (!isConnected || !address || !window.ethereum) {
-      toast.error('Please connect your wallet!');
-      return;
+    if (!isConnected || !address || !window.ethereum) { 
+      toast.error('Connect Wallet'); 
+      return; 
     }
 
-    const toastId = toast.loading('Preparing transaction...');
-    const publicClient = createPublicClient({ chain: monadTestnet, transport: http() });
-    let positionId: number; 
-
+    const toastId = toast.loading('Submitting...');
+    
     try {
-      // Check USDC Balance
-      const balance = await publicClient.readContract({
-        address: USDC_ADDRESS,
-        abi: [{ 
-          name: 'balanceOf', 
-          type: 'function', 
-          inputs: [{ name: 'owner', type: 'address' }], 
-          outputs: [{ name: 'balance', type: 'uint256' }] 
-        }],
-        functionName: 'balanceOf',
-        args: [address as Address],
-      }) as bigint;
-
-      const requiredAmount = parseUnits(amount.toString(), 6);
-      if (balance < requiredAmount) {
-        throw new Error(`Insufficient USDC balance. You need ${amount} USDC.`);
-      }
-
-      // Get Pyth Oracle Update Data for selected asset
+      // A. Fetch Hermes Update Data (Required for Smart Contract)
       const response = await fetch(`${MONAD_CONFIG.HERMES_ENDPOINT}?ids[]=${currentPriceId}`);
       const pythData = await response.json();
       const pythPriceUpdate = pythData.binary.data.map((d: string) => `0x${d}` as Address);
+      
+      // Calculate Entry Price from Pyth Data for DB consistency
+      const rawPrice = pythData.parsed[0].price.price;
+      const expo = pythData.parsed[0].price.expo;
+      const entryPrice = Number(rawPrice) * Math.pow(10, expo);
 
       let txHash: string;
+      let positionId: number;
 
       if (isAutoPilotEnabled) {
+        // --- 1-CLICK MODE ---
         positionId = Date.now();
         const res = await fetch('/api/trade/execute', {
-          method: 'POST',
+          method: 'POST', 
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            userWallet: address, 
-            targetPrice, 
-            amount, 
-            pythUpdate: pythPriceUpdate, 
-            positionId,
-            assetPriceId: currentPriceId 
-          }),
+          body: JSON.stringify({ userWallet: address, amount }),
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         txHash = data.txHash;
+        toast.success(`Trade Live!`, { id: toastId });
       } else {
-        const walletClient = createWalletClient({ 
-          chain: monadTestnet, 
-          transport: custom(window.ethereum!) 
-        });
-
-        // Get actual on-chain ID
-        const nextId = await publicClient.readContract({ 
+        // --- MANUAL MODE (Metamask Popup) ---
+        const walletClient = createWalletClient({ chain: monadTestnet, transport: custom(window.ethereum!) });
+        const publicClient = createPublicClient({ chain: monadTestnet, transport: http() });
+        
+        const nextId = await publicClient.readContract({ address: THIRTY_CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'nextPositionId' });
+        positionId = Number(nextId); 
+        
+        txHash = await walletClient.writeContract({
           address: THIRTY_CONTRACT_ADDRESS, 
           abi: CONTRACT_ABI, 
-          functionName: 'nextPositionId' 
-        });
-        positionId = Number(nextId); 
-
-        const targetPriceScaled = BigInt(Math.floor(targetPrice * 1e8));
-
-        toast.loading(`Signing for Position #${positionId}...`, { id: toastId });
-
-        txHash = await walletClient.writeContract({
-          address: THIRTY_CONTRACT_ADDRESS,
-          abi: CONTRACT_ABI,
           functionName: 'openPosition',
-          args: [
-            currentPriceId,
-            targetPriceScaled, 
-            requiredAmount, 
-            pythPriceUpdate
-          ],
-          value: parseEther('0.01'), 
-          account: address as Address,
+          args: [currentPriceId, BigInt(Math.floor(targetPrice * 1e8)), parseUnits(amount.toString(), 6), pythPriceUpdate],
+          value: parseEther('0.01'), // Pyth Fee
+          account: address as Address, 
           gas: 1000000n, 
         });
+        
+        toast.success('Confirmed!', { id: toastId });
       }
 
-      toast.loading(`Confirming on-chain...`, { id: toastId });
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash as Address });
-
-      if (receipt.status === 'reverted') {
-        throw new Error("Transaction reverted on-chain. Please check if you have enough USDC and MON for fees.");
-      }
-
-      // Save to DB only after success
-      await fetch('/api/predictions/record', {
-        method: 'POST',
+      // B. Record to Database (Optimistic)
+      fetch('/api/predictions/record', {
+        method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          positionId,
-          address,
-          asset: selectedAsset,
-          targetPrice: targetPrice.toString(),
-          entryPrice: currentPrice?.toString() || "0",
-          isUpward: targetPrice > (currentPrice || 0),
-          amount: amount.toString(),
-          multiplier,
-          txHash,
-          status: 'OPEN'
+        body: JSON.stringify({ 
+          positionId, address, asset: selectedAsset, symbol: selectedAsset,
+          targetPrice: targetPrice.toString(), entryPrice: entryPrice.toString(), 
+          isUpward: targetPrice > entryPrice, amount: amount.toString(), multiplier, 
+          txHash, status: 'OPEN', isAutoTrade: isAutoPilotEnabled
         }),
-      });
+      }).catch(e => console.warn('DB record warning:', e));
 
-      toast.success(`Trade Live! ID: #${positionId}`, { id: toastId });
-    } catch (error: any) {
+    } catch (error: any) { 
       console.error(error);
-      toast.error(error.shortMessage || error.message || "Trade failed", { id: toastId });
+      toast.error(error.shortMessage || "Failed to place bet", { id: toastId }); 
     }
   };
 
-  // Show Home landing page when wallet is not connected
-  if (!isConnected) {
-    return <Home />;
-  }
+  if (!isConnected) return <Home />;
 
-  // Show main trading interface when wallet is connected
   return (
-    <div className="min-h-screen bg-[#082832]">
-      {/* Navbar */}
-      <nav className="max-w-7xl mx-auto px-4 pt-6">
-        <div className="flex items-center justify-between bg-[#0A696C] rounded-full px-6 py-3">
-          {/* Left - Blink Mode Info */}
-          <div className="flex items-center gap-4">
-            <div>
-              <h3 className="text-white font-bold text-lg">Blink Mode</h3>
-              <p className="text-xs text-white/70">1-tap trading is ready. No extra approvals.</p>
-            </div>
+    <div className="relative h-screen w-screen overflow-hidden bg-[#05181e] text-white">
+      
+      {/* ==============================================
+        LAYER 0: THE GAME ENGINE (Full Screen Background)
+        ==============================================
+      */}
+      <div className="absolute inset-0 z-0">
+        <GameEngine 
+          selectedAsset={selectedAsset}
+          userAddress={address}
+          selectedAmount={selectedAmount}
+          onPlaceBetAPI={handlePlaceBet}
+        />
+      </div>
 
-            {/* Approve USDC Button */}
-            <button
-              onClick={handleApproveUSDC}
-              className="text-sm bg-[#F5F5DC] hover:bg-[#E5E5CC] text-[#0A696C] px-5 py-2 rounded-full font-bold transition-all"
-            >
-              Approve USDC
-            </button>
+      {/* ==============================================
+        LAYER 1: TOP HUD (Navigation & Asset Selector)
+        ==============================================
+      */}
+      <div className="absolute top-0 left-0 right-0 z-50 p-4 pointer-events-none">
+        <div className="max-w-7xl mx-auto flex items-center justify-between pointer-events-auto">
+          
+          {/* Left: Branding & Connection */}
+          <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md p-2 rounded-full border border-white/10 shadow-lg">
+             <ConnectWallet />
+             <div className="h-6 w-[1px] bg-white/20"></div>
+             <div className="flex items-center gap-2 px-2">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span className="text-xs font-bold text-green-400">{liveUsers} Live</span>
+             </div>
           </div>
 
-          {/* Right - Status + Actions + Wallet */}
-          <div className="flex items-center gap-3">
-            {isCheckingAutoPilot ? (
-              <div className="text-white/70 text-sm animate-pulse">Checking...</div>
-            ) : isAutoPilotEnabled ? (
-              <>
-                <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-5 py-2 rounded-full text-sm font-bold">
-                  Active
-                </span>
-                <button
-                  onClick={handleDisableAutoPilot}
-                  className="text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 px-5 py-2 rounded-full font-bold transition-all"
-                >
-                  Disable
-                </button>
-              </>
-            ) : (
-              <AutoTradeSetup userAddress={address!} onEnabled={() => setIsAutoPilotEnabled(true)} />
-            )}
-
-            <ConnectWallet />
+          {/* Center: Asset Selector Pills */}
+          <div className="flex bg-black/60 backdrop-blur-xl rounded-2xl p-1 border border-white/10 shadow-2xl">
+            {(Object.keys(PYTH_PRICE_IDS) as AssetSymbol[]).map((asset) => (
+              <button
+                key={asset}
+                onClick={() => setSelectedAsset(asset)}
+                className={`px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${
+                    selectedAsset === asset 
+                    ? 'bg-[#0A696C] text-white shadow-lg scale-105' 
+                    : 'text-white/50 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {asset}
+              </button>
+            ))}
           </div>
-        </div>
-      </nav>
 
-      <main className="max-w-5xl mx-auto px-4 pt-8 pb-8 space-y-6">
-        {/* Asset Selector */}
-        <div className="flex justify-center gap-3">
-          {(Object.keys(PYTH_PRICE_IDS) as AssetSymbol[]).map((asset) => (
-            <button
-              key={asset}
-              onClick={() => setSelectedAsset(asset)}
-              className={`px-6 py-3 rounded-xl font-bold transition-all ${
-                selectedAsset === asset
-                  ? 'bg-[#0A696C] text-white shadow-lg scale-105'
-                  : 'bg-white/10 text-white/60 hover:bg-white/20'
-              }`}
-            >
-              {asset}
-            </button>
-          ))}
+          {/* Right: Stats Drawer Toggle */}
+          <button 
+            onClick={() => setShowStats(true)}
+            className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 hover:bg-white/10 transition shadow-lg group"
+          >
+            <Menu size={20} className="group-hover:text-yellow-400 transition-colors" />
+          </button>
         </div>
+      </div>
 
-        {/* Chart Container */}
-        <div className="flex justify-center">
-          <div className="w-full max-w-4xl">
-            {/* Live Price Badge */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 bg-[#0A696C]/20 border border-[#0A696C]/40 rounded-full px-4 py-2">
-                  <div className="relative">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <div className="absolute inset-0 w-2 h-2 bg-green-500 rounded-full animate-ping"></div>
-                  </div>
-                  <span className="text-white/60 text-sm font-medium">{selectedAsset}/USD</span>
-                </div>
+      {/* ==============================================
+        LAYER 2: BOTTOM HUD (Betting Controls)
+        ==============================================
+      */}
+      <div className="absolute bottom-8 left-0 right-0 z-50 px-4 pointer-events-none">
+        <div className="max-w-2xl mx-auto pointer-events-auto">
+           <div className="bg-black/70 backdrop-blur-xl rounded-3xl p-3 border border-white/10 shadow-2xl flex items-center justify-between">
+              
+              {/* Balance Display */}
+              <div className="flex flex-col px-4 border-r border-white/10">
+                 <span className="text-[10px] text-white/50 uppercase tracking-wider">USDC Balance</span>
+                 <div className="flex items-center gap-2 font-mono font-bold text-green-400 text-lg">
+                    <Wallet size={16} /> ${usdcBalance}
+                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="bg-gradient-to-r from-[#0A696C] to-[#065456] rounded-2xl px-5 py-2.5 shadow-lg border border-[#0A696C]/50">
-                  <div className="flex items-center gap-3">
-                    <div className="text-[#A1BCBD] text-xs font-medium">Live Price</div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-[#A1BCBD] text-lg">$</span>
-                      <span className="text-white font-black text-2xl tabular-nums">
-                        {currentPrice ? currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '---'}
-                      </span>
-                    </div>
-                    {currentPrice && priceDirection && (
-                      <div className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-bold transition-all duration-300 ${
-                        priceDirection === 'up' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        <svg
-                          className={`w-3 h-3 transition-transform duration-300 ${priceDirection === 'down' ? 'rotate-180' : ''}`}
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                </div>
+              {/* Quick Amount Selectors */}
+              <div className="flex items-center gap-2">
+                 {[5, 10, 25, 50].map((amt) => (
+                    <button
+                        key={amt}
+                        onClick={() => setSelectedAmount(amt)}
+                        className={`w-12 h-12 rounded-xl font-bold flex items-center justify-center transition-all ${
+                            selectedAmount === amt 
+                            ? 'bg-[#0A696C] text-white shadow-[0_0_15px_rgba(10,105,108,0.5)] scale-110' 
+                            : 'bg-white/5 text-white/40 hover:bg-white/10'
+                        }`}
+                    >
+                        ${amt}
+                    </button>
+                 ))}
               </div>
+
+              {/* Tools (Autopilot & Approve) */}
+              <div className="pl-4 border-l border-white/10 flex items-center gap-3">
+                 {isCheckingAutoPilot ? (
+                    <Loader2 size={20} className="animate-spin text-white/30" />
+                 ) : isAutoPilotEnabled ? (
+                     <button onClick={handleDisableAutoPilot} className="bg-green-500/20 text-green-400 border border-green-500/50 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-500/20 hover:text-red-400 hover:border-red-500 transition-all flex items-center gap-2">
+                        <Activity size={14} /> AUTOPILOT ON
+                     </button>
+                 ) : (
+                    <AutoTradeSetup userAddress={address!} onEnabled={() => setIsAutoPilotEnabled(true)} />
+                 )}
+                 
+                 <button onClick={handleApproveUSDC} className="p-2.5 bg-white/5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition border border-transparent hover:border-white/10" title="Approve USDC">
+                    <Wallet size={18} />
+                 </button>
+              </div>
+
+           </div>
+        </div>
+      </div>
+
+      {/* ==============================================
+        LAYER 3: STATS DRAWER (Slide Over)
+        ==============================================
+      */}
+      <div 
+        className={`fixed inset-y-0 right-0 w-96 bg-[#061e24]/95 backdrop-blur-2xl border-l border-white/10 z-[100] transform transition-transform duration-300 ease-in-out shadow-2xl
+        ${showStats ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+         <div className="p-6 h-full flex flex-col">
+            <div className="flex items-center justify-between mb-8">
+               <h2 className="text-xl font-bold flex items-center gap-2 text-white">
+                  <Trophy className="text-yellow-500" /> Leaderboard
+               </h2>
+               <button onClick={() => setShowStats(false)} className="p-2 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition">
+                  <X size={24} />
+               </button>
             </div>
 
-            <InteractiveChart
-              currentPrice={currentPrice}
-              userAddress={address}
-              selectedAmount={selectedAmount}
-              selectedAsset={selectedAsset}
-              onPlaceBet={handlePlaceBet}
-            />
-          </div>
-        </div>
+            <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
+               {/* Current User Stats */}
+               <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
+                  <h3 className="text-xs font-bold text-white/40 uppercase mb-4">Your Performance</h3>
+                  <UserStats address={address!} />
+               </div>
 
-        {/* Bottom Section - Available USDC and Blinks */}
-        <div className="flex flex-col md:flex-row items-center justify-center gap-8 mt-8">
-          {/* Available USDC */}
-          <div className="text-center">
-            <p className="text-white/80 text-lg mb-2">Available USDC</p>
-            <div className="bg-[#0A696C] text-white font-bold text-2xl px-8 py-3 rounded-full">
-              <span className="text-[#A1BCBD]">$</span> {usdcBalance}
+               <div className="h-[1px] bg-white/10" />
+
+               {/* Global Leaderboard */}
+               <div>
+                   <h3 className="text-xs font-bold text-white/40 uppercase mb-3">Top {selectedAsset} Traders</h3>
+                   <div className="space-y-2">
+                      {leaderboard.map((user, i) => (
+                        <div key={i} className="flex justify-between items-center bg-black/20 p-3 rounded-xl border border-white/5 hover:border-white/10 transition">
+                            <div className="flex items-center gap-3">
+                                <span className={`text-xs font-bold w-5 ${i < 3 ? 'text-yellow-500' : 'text-white/30'}`}>#{i+1}</span>
+                                <span className="text-white/80 text-sm font-mono">{user._id.slice(0, 6)}...</span>
+                            </div>
+                            <span className="text-green-400 font-bold text-sm">
+                                ${parseFloat(user.totalWon).toFixed(2)}
+                            </span>
+                        </div>
+                      ))}
+                   </div>
+               </div>
+
+               <div className="h-[1px] bg-white/10" />
+               
+               {/* Recent History */}
+               <div>
+                  <h3 className="text-xs font-bold text-white/40 uppercase mb-3">Recent Rounds</h3>
+                  <RecentRounds address={address!} />
+               </div>
             </div>
-          </div>
+         </div>
+      </div>
 
-          {/* Blinks Available */}
-          <div className="text-center">
-            <p className="text-white/80 text-lg mb-2">Blinks Available</p>
-            <div className="flex items-center gap-3">
-              {[5, 10, 25, 50].map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => setSelectedAmount(amt)}
-                  className={`font-bold text-xl px-6 py-3 rounded-full transition-all border-2 ${
-                    selectedAmount === amt
-                      ? 'bg-[#A1BCBD] text-[#0A696C] border-[#A1BCBD]'
-                      : 'bg-[#0A696C] hover:bg-[#0A797C] text-white border-[#0A696C] hover:border-[#A1BCBD]'
-                  }`}
-                >
-                  <span className={selectedAmount === amt ? 'text-[#0A696C]' : 'text-[#A1BCBD]'}>$</span>{amt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+      {/* Overlay to close drawer when clicking outside */}
+      {showStats && (
+        <div className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[2px]" onClick={() => setShowStats(false)} />
+      )}
 
-        {/* Stats and History Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-          <UserStats address={address!} />
-          <RecentRounds address={address!} />
-        </div>
-      </main>
     </div>
   );
 }
