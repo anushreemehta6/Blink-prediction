@@ -5,7 +5,7 @@ import { Trophy, Activity, Wallet, X, ChevronRight, Zap, Target, Crown, Star, Ba
 import { io } from 'socket.io-client';
 import { useWallet } from '@/context/WalletContext';
 // ✅ Import the new GameEngine (The Logic Layer)
-import GameEngine from '@/components/GameEngine'; 
+import GameEngine from '@/components/GameEngine';
 import AutoTradeSetup from '@/components/AutoTradeSetup';
 import ConnectWallet from '@/components/ConnectWallet';
 import UserStats from '@/components/UserStats';
@@ -44,17 +44,18 @@ const CONTRACT_ABI = [
 
 export default function HomePage() {
   const { isConnected, address } = useWallet();
-  
+
   // UI State
   const [selectedAsset, setSelectedAsset] = useState<AssetSymbol>('ETH');
   const [selectedAmount, setSelectedAmount] = useState(5);
   const [showStats, setShowStats] = useState(false); // Controls the Side Drawer
-  
+
   // Data State
   const [usdcBalance, setUsdcBalance] = useState<string>("0.00");
   const [liveUsers, setLiveUsers] = useState<number>(0);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
-  
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+
   // Automation State
   const [isAutoPilotEnabled, setIsAutoPilotEnabled] = useState(false);
   const [isCheckingAutoPilot, setIsCheckingAutoPilot] = useState(true);
@@ -62,6 +63,7 @@ export default function HomePage() {
   // Socket State
   const [socket, setSocket] = useState<any>(null);
   const currentPriceId = getPriceId(selectedAsset);
+  
 
   // --- 1. SOCKET & LEADERBOARD INITIALIZATION ---
   useEffect(() => {
@@ -72,7 +74,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!address) return;
-    
+
     // Fetch Leaderboard
     fetch(`/api/leaderboard?symbol=${selectedAsset}`)
       .then(res => res.json())
@@ -90,7 +92,7 @@ export default function HomePage() {
   // --- 2. CHECK AUTO-PILOT STATUS ---
   useEffect(() => {
     if (!address) { setIsCheckingAutoPilot(false); return; }
-    
+
     fetch(`/api/session/status?address=${address}`)
       .then(res => res.ok ? res.json() : null)
       .then(data => setIsAutoPilotEnabled(data?.isActive || false))
@@ -102,7 +104,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!address) return;
     const publicClient = createPublicClient({ chain: monadTestnet, transport: http() });
-    
+
     const fetchBalance = async () => {
       try {
         const balance = await publicClient.readContract({
@@ -114,7 +116,7 @@ export default function HomePage() {
         setUsdcBalance(Number(formatUnits(balance, 6)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       } catch (e) { console.error(e); }
     };
-    
+
     fetchBalance();
     const interval = setInterval(fetchBalance, 5000);
     return () => clearInterval(interval);
@@ -152,19 +154,19 @@ export default function HomePage() {
 
   // --- 5. BETTING LOGIC (Called by GameEngine) ---
   const handlePlaceBet = async (targetPrice: number, amount: number, multiplier: number) => {
-    if (!isConnected || !address || !window.ethereum) { 
-      toast.error('Connect Wallet'); 
-      return; 
+    if (!isConnected || !address || !window.ethereum) {
+      toast.error('Connect Wallet');
+      return;
     }
 
     const toastId = toast.loading('Submitting...');
-    
+
     try {
       // A. Fetch Hermes Update Data (Required for Smart Contract)
       const response = await fetch(`${MONAD_CONFIG.HERMES_ENDPOINT}?ids[]=${currentPriceId}`);
       const pythData = await response.json();
       const pythPriceUpdate = pythData.binary.data.map((d: string) => `0x${d}` as Address);
-      
+
       // Calculate Entry Price from Pyth Data for DB consistency
       const rawPrice = pythData.parsed[0].price.price;
       const expo = pythData.parsed[0].price.expo;
@@ -177,7 +179,7 @@ export default function HomePage() {
         // --- 1-CLICK MODE ---
         positionId = Date.now();
         const res = await fetch('/api/trade/execute', {
-          method: 'POST', 
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userWallet: address, amount }),
         });
@@ -189,38 +191,38 @@ export default function HomePage() {
         // --- MANUAL MODE (Metamask Popup) ---
         const walletClient = createWalletClient({ chain: monadTestnet, transport: custom(window.ethereum!) });
         const publicClient = createPublicClient({ chain: monadTestnet, transport: http() });
-        
+
         const nextId = await publicClient.readContract({ address: THIRTY_CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: 'nextPositionId' });
-        positionId = Number(nextId); 
-        
+        positionId = Number(nextId);
+
         txHash = await walletClient.writeContract({
-          address: THIRTY_CONTRACT_ADDRESS, 
-          abi: CONTRACT_ABI, 
+          address: THIRTY_CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
           functionName: 'openPosition',
           args: [currentPriceId, BigInt(Math.floor(targetPrice * 1e8)), parseUnits(amount.toString(), 6), pythPriceUpdate],
           value: parseEther('0.01'), // Pyth Fee
-          account: address as Address, 
-          gas: 1000000n, 
+          account: address as Address,
+          gas: 1000000n,
         });
-        
+
         toast.success('Confirmed!', { id: toastId });
       }
 
       // B. Record to Database (Optimistic)
       fetch('/api/predictions/record', {
-        method: 'POST', 
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           positionId, address, asset: selectedAsset, symbol: selectedAsset,
-          targetPrice: targetPrice.toString(), entryPrice: entryPrice.toString(), 
-          isUpward: targetPrice > entryPrice, amount: amount.toString(), multiplier, 
+          targetPrice: targetPrice.toString(), entryPrice: entryPrice.toString(),
+          isUpward: targetPrice > entryPrice, amount: amount.toString(), multiplier,
           txHash, status: 'OPEN', isAutoTrade: isAutoPilotEnabled
         }),
       }).catch(e => console.warn('DB record warning:', e));
 
-    } catch (error: any) { 
+    } catch (error: any) {
       console.error(error);
-      toast.error(error.shortMessage || "Failed to place bet", { id: toastId }); 
+      toast.error(error.shortMessage || "Failed to place bet", { id: toastId });
     }
   };
 
@@ -258,6 +260,7 @@ export default function HomePage() {
           userAddress={address}
           selectedAmount={selectedAmount}
           onPlaceBetAPI={handlePlaceBet}
+          onPriceUpdate={setCurrentPrice}
         />
       </div>
 
@@ -269,10 +272,17 @@ export default function HomePage() {
         <div className="p-3 sm:p-4">
           <div className="max-w-7xl mx-auto flex items-center justify-between pointer-events-auto gap-4">
 
-            {/* Left: Wallet + Live */}
+            {/* Left: Live price + Live badge */}
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-lg">
-                <ConnectWallet />
+              <div className="flex items-center gap-2 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 font-[family-name:var(--font-mono)]">
+                <span className="relative flex h-2 w-2 flex-shrink-0">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--accent-green)] animate-ping opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--accent-green)]" />
+                </span>
+                <span className="text-[10px] text-[var(--text-dim)] uppercase tracking-wider">{selectedAsset}</span>
+                <span className="text-sm font-bold text-[var(--text-primary)]">
+                  {currentPrice != null ? `$${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                </span>
               </div>
               <div className="flex items-center gap-2 bg-[var(--accent-green-dim)] border border-[var(--accent-green)]/30 px-2.5 py-1.5 rounded-lg font-[family-name:var(--font-mono)]">
                 <span className="relative flex h-2 w-2">
@@ -292,9 +302,8 @@ export default function HomePage() {
                   <button
                     key={asset}
                     onClick={() => setSelectedAsset(asset)}
-                    className={`relative px-4 py-2 rounded-md text-sm font-bold font-[family-name:var(--font-mono)] transition-all duration-200 ${
-                      isSelected ? 'text-white' : 'text-[var(--text-dim)] hover:text-[var(--text-muted)]'
-                    }`}
+                    className={`relative px-4 py-2 rounded-md text-sm font-bold font-[family-name:var(--font-mono)] transition-all duration-200 ${isSelected ? 'text-white' : 'text-[var(--text-dim)] hover:text-[var(--text-muted)]'
+                      }`}
                     style={isSelected ? {
                       background: `linear-gradient(135deg, ${colors.primary}28, ${colors.primary}12)`,
                       boxShadow: `0 0 16px ${colors.glow}`,
@@ -328,56 +337,60 @@ export default function HomePage() {
       <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-none">
         <div className="h-28 bg-gradient-to-t from-[var(--bg-deep)] via-[var(--bg-deep)]/90 to-transparent" />
         <div className="bg-[var(--bg-deep)] pb-5 px-4 -mt-6">
-          <div className="max-w-3xl mx-auto pointer-events-auto">
+          <div className="max-w-7xl mx-auto pointer-events-auto">
             <div
-              className="relative rounded-xl overflow-hidden border border-[var(--border-subtle)]"
+              className="relative rounded-xl overflow-visible border border-[var(--border-subtle)]"
               style={{ boxShadow: `0 -8px 32px -8px ${currentColor.glow}` }}
             >
               <div
                 className="absolute top-0 left-1/4 right-1/4 h-px opacity-60"
                 style={{ background: `linear-gradient(90deg, transparent, ${currentColor.primary}, transparent)` }}
               />
-              <div className="bg-[var(--bg-panel)]/95 backdrop-blur-xl rounded-xl p-3 sm:p-4 flex flex-wrap items-center justify-center sm:justify-between gap-3 sm:gap-4">
-
-                {/* Balance */}
-                <div className="flex flex-col min-w-[120px]">
-                  <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-[var(--text-dim)] mb-0.5">Balance</span>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-mono)] text-[var(--text-primary)]">${usdcBalance}</span>
-                    <span className="text-[10px] text-[var(--text-dim)]">USDC</span>
+              <div className="bg-[var(--bg-panel)]/95 backdrop-blur-xl rounded-xl p-3 sm:p-4 flex flex-rows flex-wrap items-center justify-center sm:justify-between gap-3 sm:gap-4">
+                <div>
+                  {/* Balance */}
+                  <div className="flex flex-col min-w-[120px]">
+                    <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-[var(--text-dim)] mb-0.5">Balance</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xl sm:text-2xl font-bold font-[family-name:var(--font-mono)] text-[var(--text-primary)]">${usdcBalance}</span>
+                      <span className="text-[10px] text-[var(--text-dim)]">USDC</span>
+                    </div>
                   </div>
+
+                  {/* <div className="w-px h-10 bg-[var(--border-subtle)] hidden sm:block" /> */}
                 </div>
 
-                <div className="w-px h-10 bg-[var(--border-subtle)] hidden sm:block" />
+                <div>
+                  {/* Amount Chips */}
+                  <div className="flex items-center gap-1.5">
+                    {[5, 10, 25, 50].map((amt) => {
+                      const isSelected = selectedAmount === amt;
+                      return (
+                        <button
+                          key={amt}
+                          onClick={() => setSelectedAmount(amt)}
+                          className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg font-bold text-base font-[family-name:var(--font-mono)] transition-all duration-200 ${isSelected
+                              ? 'text-[var(--bg-deep)] scale-105'
+                              : 'bg-[var(--bg-elevated)] text-[var(--text-dim)] hover:text-[var(--text-muted)] hover:border-[var(--border-strong)] border border-transparent'
+                            }`}
+                          style={isSelected ? {
+                            background: `linear-gradient(135deg, ${currentColor.primary}, ${currentColor.primary}aa)`,
+                            boxShadow: `0 0 20px ${currentColor.glow}`,
+                          } : {}}
+                        >
+                          <span className="relative">${amt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                {/* Amount Chips */}
-                <div className="flex items-center gap-1.5">
-                  {[5, 10, 25, 50].map((amt) => {
-                    const isSelected = selectedAmount === amt;
-                    return (
-                      <button
-                        key={amt}
-                        onClick={() => setSelectedAmount(amt)}
-                        className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg font-bold text-base font-[family-name:var(--font-mono)] transition-all duration-200 ${
-                          isSelected
-                            ? 'text-[var(--bg-deep)] scale-105'
-                            : 'bg-[var(--bg-elevated)] text-[var(--text-dim)] hover:text-[var(--text-muted)] hover:border-[var(--border-strong)] border border-transparent'
-                        }`}
-                        style={isSelected ? {
-                          background: `linear-gradient(135deg, ${currentColor.primary}, ${currentColor.primary}aa)`,
-                          boxShadow: `0 0 20px ${currentColor.glow}`,
-                        } : {}}
-                      >
-                        <span className="relative">${amt}</span>
-                      </button>
-                    );
-                  })}
+                  {/* <div className="w-px h-10 bg-[var(--border-subtle)] hidden sm:block" /> */}
+
+
                 </div>
 
-                <div className="w-px h-10 bg-[var(--border-subtle)] hidden sm:block" />
-
-                {/* Actions */}
-                <div className="flex items-center gap-2">
+                {/* Actions + Wallet */}
+                <div className="flex items-center gap-2 flex-shrink-0 overflow-visible">
                   {isCheckingAutoPilot ? (
                     <div className="w-10 h-10 rounded-lg bg-[var(--bg-elevated)] flex items-center justify-center">
                       <div className="w-4 h-4 border-2 border-[var(--border-strong)] border-t-[var(--accent-green)] rounded-full animate-spin" />
@@ -401,14 +414,18 @@ export default function HomePage() {
                   >
                     <Wallet size={18} />
                   </button>
+                  <div className="w-px h-10 bg-[var(--border-subtle)] hidden sm:block" />
+                  <div className="flex-shrink-0">
+                    <ConnectWallet dropdownUpward />
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="flex items-center justify-center gap-2 mt-2.5 text-[var(--text-dim)] text-[11px] font-[family-name:var(--font-mono)]">
+            {/* <div className="flex items-center justify-center gap-2 mt-2.5 text-[var(--text-dim)] text-[11px] font-[family-name:var(--font-mono)]">
               <Target size={12} />
               <span>Click chart to place prediction</span>
               <ChevronRight size={12} />
-            </div>
+            </div> */}
           </div>
         </div>
       </div>
@@ -479,17 +496,15 @@ export default function HomePage() {
                   return (
                     <div
                       key={i}
-                      className={`flex items-center justify-between p-2.5 rounded-lg border transition-all hover:bg-[var(--bg-elevated)] ${
-                        isTop3
+                      className={`flex items-center justify-between p-2.5 rounded-lg border transition-all hover:bg-[var(--bg-elevated)] ${isTop3
                           ? 'bg-[var(--accent-amber-dim)] border-[var(--accent-amber)]/30'
                           : 'bg-[var(--bg-elevated)]/50 border-[var(--border-subtle)]'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2.5">
                         <div
-                          className={`w-7 h-7 rounded-md flex items-center justify-center font-bold text-xs font-[family-name:var(--font-mono)] ${
-                            isTop3 ? 'text-[var(--bg-deep)]' : 'bg-[var(--bg-panel)] text-[var(--text-dim)]'
-                          }`}
+                          className={`w-7 h-7 rounded-md flex items-center justify-center font-bold text-xs font-[family-name:var(--font-mono)] ${isTop3 ? 'text-[var(--bg-deep)]' : 'bg-[var(--bg-panel)] text-[var(--text-dim)]'
+                            }`}
                           style={isTop3 ? { background: medals[i] } : {}}
                         >
                           {i + 1}

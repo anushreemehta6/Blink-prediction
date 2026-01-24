@@ -28,13 +28,15 @@ interface GameEngineProps {
   userAddress?: string;
   selectedAmount: number;
   onPlaceBetAPI: (targetPrice: number, amount: number, multiplier: number) => Promise<void>;
+  onPriceUpdate?: (price: number) => void;
 }
 
 export default function GameEngine({ 
   selectedAsset, 
   userAddress, 
   selectedAmount, 
-  onPlaceBetAPI 
+  onPlaceBetAPI,
+  onPriceUpdate,
 }: GameEngineProps) {
   
   // --- 1. STATE MANAGEMENT ---
@@ -68,6 +70,7 @@ export default function GameEngine({
              const newPrice = Number(rawPrice) * Math.pow(10, expo);
 
              setCurrentPrice(newPrice);
+             onPriceUpdate?.(newPrice);
              
              // Maintain a history buffer for the line chart
              setPriceHistory(prev => {
@@ -85,7 +88,7 @@ export default function GameEngine({
     fetchPrice();
     const interval = setInterval(fetchPrice, 1000);
     return () => { mounted = false; clearInterval(interval); };
-  }, [selectedAsset]);
+  }, [selectedAsset, onPriceUpdate]);
 
   // Block Status Checking (Win/Loss Logic)
   useEffect(() => {
