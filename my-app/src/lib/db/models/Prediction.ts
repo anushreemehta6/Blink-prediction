@@ -5,16 +5,17 @@ import mongoose, { Model, Schema } from 'mongoose';
  */
 export interface IPrediction {
   userWallet: string;
-  symbol: string;      // 👈 Added for Multi-Token support (BTC, ETH, etc.)
+  symbol: string;      // Multi-Token support (BTC, ETH, etc.)
   positionId: number;
   targetPrice: string;
   entryPrice: string;
   multiplier: number;
   amount: string;
   isUpward: boolean;
-  status: 'OPEN' | 'WON' | 'LOST';
+  status: 'OPEN' | 'WON' | 'LOST' | 'FAILED';  // ✅ Added 'FAILED' status
   payout?: string;
   txHash: string;
+  isAutoTrade: boolean;  // ✅ ADDED: Indicates if bot should handle this position
   createdAt: Date; 
   updatedAt: Date;
 }
@@ -32,7 +33,7 @@ interface IPredictionModel extends Model<IPrediction> {
     totalWon: string;
     netProfit: string;
     winRate: string;
-    favAsset: string; // 👈 Bonus: Tracks which asset they trade most
+    favAsset: string;
   }>;
 }
 
@@ -49,8 +50,8 @@ const PredictionSchema = new Schema<IPrediction>({
   symbol: { 
     type: String, 
     required: true, 
-    uppercase: true, // Standardizes 'eth' to 'ETH'
-    index: true      // Indexed for fast filtering by token
+    uppercase: true,
+    index: true
   },
   positionId: { 
     type: Number, 
@@ -64,22 +65,27 @@ const PredictionSchema = new Schema<IPrediction>({
   isUpward: { type: Boolean, required: true },
   status: { 
     type: String, 
-    enum: ['OPEN', 'WON', 'LOST'], 
+    enum: ['OPEN', 'WON', 'LOST', 'FAILED'],  // ✅ Added 'FAILED'
     default: 'OPEN',
     index: true
   },
   payout: { type: String, default: '0' },
   txHash: { type: String, required: true },
+  isAutoTrade: {  // ✅ ADDED
+    type: Boolean, 
+    default: false,
+    index: true  // Indexed for bot queries (find all auto-trades)
+  }
 }, {
-  // Automatically manages createdAt and updatedAt
   timestamps: true 
 });
 
 /**
  * 4. Compound Indexes
- * Optimizes queries like "Show me all ETH trades for this user"
  */
 PredictionSchema.index({ userWallet: 1, symbol: 1, createdAt: -1 });
+// ✅ ADDED: Index for bot to quickly find auto-trade positions
+PredictionSchema.index({ isAutoTrade: 1, status: 1, createdAt: -1 });
 
 /**
  * 5. Aggregated Stats Method

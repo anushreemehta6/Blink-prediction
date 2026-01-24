@@ -83,6 +83,10 @@ export default function GameCanvas({
   const ASSET_COLOR = ASSET_METADATA[selectedAsset]?.color || '#0A696C';
   const MS_PER_PIXEL = 50 * viewport.zoom; // Zoom scaling for time axis
 
+  // Grid settings - MUST MATCH GameEngine.tsx
+  const TIME_STEP = 5000; // 5 seconds per column
+  const PRICE_ROWS = 10; // Number of price rows
+
   // Create burst particles (WIN animation) - BIGGER, FASTER, MORE SPREAD
   const createBurstParticles = (x: number, y: number) => {
     const colors = ['#4ade80', '#22c55e', '#86efac', '#fde047', '#ffffff', '#a3e635'];
@@ -303,8 +307,6 @@ export default function GameCanvas({
     const now = Date.now();
 
     // Grid settings
-    const TIME_STEP = 5000; // 5 seconds per column
-    const PRICE_ROWS = 10; // Number of price rows
     const priceStep = visibleBounds.range / PRICE_ROWS;
 
     // Calculate the "NOW" line X position
@@ -494,20 +496,35 @@ export default function GameCanvas({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // D. Draw Blocks (The Bets) and trigger animations
-    const blockW = 60;
-    const blockH = 40;
-
+    // D. Draw Blocks (The Bets) - FIT TO GRID CELLS
     blocks.forEach(block => {
-        const { x, y } = worldToScreen(block.expiryTime, block.targetPrice, width, height);
+        // Calculate which grid cell this block belongs to
+        const { x: blockCenterX, y: blockCenterY } = worldToScreen(block.expiryTime, block.targetPrice, width, height);
+
+        // Find the grid cell boundaries for this block
+        const blockGridTime = Math.floor(block.expiryTime / TIME_STEP) * TIME_STEP;
+        const blockGridPrice = Math.floor((block.targetPrice - firstGridPrice) / priceStep) * priceStep + firstGridPrice;
+
+        // Get cell corners to determine size
+        const { x: cellX1, y: cellY1 } = worldToScreen(blockGridTime, blockGridPrice + priceStep, width, height);
+        const { x: cellX2, y: cellY2 } = worldToScreen(blockGridTime + TIME_STEP, blockGridPrice, width, height);
+
+        // Cell dimensions with padding
+        const cellWidth = cellX2 - cellX1;
+        const cellHeight = cellY2 - cellY1;
+        const padding = 4; // Padding from cell edges
+
+        // Block dimensions fit within cell
+        const blockW = Math.max(cellWidth - padding * 2, 40);
+        const blockH = Math.max(cellHeight - padding * 2, 30);
 
         // Check if this block just changed status and trigger animation
         if (block.status === 'HIT' && !processedBlocksRef.current.has(block.id + '_hit')) {
             processedBlocksRef.current.add(block.id + '_hit');
-            createBurstParticles(x, y);
+            createBurstParticles(blockCenterX, blockCenterY);
         } else if (block.status === 'MISSED' && !processedBlocksRef.current.has(block.id + '_miss')) {
             processedBlocksRef.current.add(block.id + '_miss');
-            createShatterParticles(x, y, blockW, blockH);
+            createShatterParticles(blockCenterX, blockCenterY, blockW, blockH);
         }
 
         // Collision / Status Color
@@ -538,20 +555,30 @@ export default function GameCanvas({
           ctx.shadowBlur = glow;
           ctx.shadowColor = color;
           ctx.fillStyle = 'rgba(0,0,0,0.6)'; // Dark glass background
-          ctx.fillRect(x - blockW/2, y - blockH/2, blockW, blockH);
+          ctx.fillRect(blockCenterX - blockW/2, blockCenterY - blockH/2, blockW, blockH);
 
           // 2. Draw Border
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
-          ctx.strokeRect(x - blockW/2, y - blockH/2, blockW, blockH);
+          ctx.strokeRect(blockCenterX - blockW/2, blockCenterY - blockH/2, blockW, blockH);
 
-          // 3. Draw Text
+          // 3. Draw Text - TWO LINES (Amount + Multiplier)
           ctx.shadowBlur = 0;
           ctx.fillStyle = '#fff';
-          ctx.font = 'bold 12px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(`${block.multiplier.toFixed(2)}x`, x, y);
+          
+          // Calculate font size based on cell size
+          const baseFontSize = Math.min(blockH / 4, 11);
+          const multiplierFontSize = Math.min(blockH / 3.5, 13);
+          
+          // Bet amount on top line
+          ctx.font = `bold ${baseFontSize}px sans-serif`;
+          ctx.fillText(`$${block.amount}`, blockCenterX, blockCenterY - blockH * 0.15);
+          
+          // Multiplier on bottom line
+          ctx.font = `bold ${multiplierFontSize}px sans-serif`;
+          ctx.fillText(`${block.multiplier.toFixed(2)}x`, blockCenterX, blockCenterY + blockH * 0.15);
         }
 
         ctx.globalAlpha = 1.0;
@@ -570,6 +597,7 @@ export default function GameCanvas({
         ctx.moveTo(0, mousePos.y);
         ctx.lineTo(width, mousePos.y);
         ctx.stroke();
+        ctx.setLineDash([]);
     }
 
   }, [currentPrice, priceHistory, blocks, viewport, visibleBounds, mousePos, selectedAsset, animationTick]);
