@@ -64,20 +64,19 @@ export default function UserStats({ address }: UserStatsProps) {
 
   if (loading) {
     return (
-      <div className="bg-gradient-to-br from-[#0A696C] to-[#065456] rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+      <div className="bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-xl p-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--accent-green)]/5 rounded-full -translate-y-1/2 translate-x-1/2" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 bg-white/10 rounded-2xl animate-pulse" />
-            <div className="w-32 h-6 bg-white/10 rounded animate-pulse" />
+            <div className="w-10 h-10 bg-[var(--bg-elevated)] rounded-lg animate-pulse" />
+            <div className="w-28 h-4 bg-[var(--bg-elevated)] rounded animate-pulse" />
           </div>
           <div className="flex justify-center mb-6">
-            <div className="w-36 h-36 bg-white/10 rounded-full animate-pulse" />
+            <div className="w-32 h-32 bg-[var(--bg-elevated)] rounded-full animate-pulse" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-20 bg-white/10 rounded-2xl animate-pulse" />
+              <div key={i} className="h-16 bg-[var(--bg-elevated)] rounded-lg animate-pulse" />
             ))}
           </div>
         </div>
@@ -100,18 +99,18 @@ export default function UserStats({ address }: UserStatsProps) {
 
   // Pie chart data
   const pieData = [
-    { name: 'Wins', value: userStats.wins, color: '#4ADE80' },
-    { name: 'Losses', value: userStats.losses, color: '#F87171' },
+    { name: 'Wins', value: userStats.wins, color: '#00d26a' },
+    { name: 'Losses', value: userStats.losses, color: '#ff4757' },
   ];
   const filteredPieData = pieData.filter(item => item.value > 0);
   const hasData = filteredPieData.length > 0;
 
   return (
     <motion.div
-      className="bg-gradient-to-br from-[#0A696C] to-[#065456] rounded-3xl p-6 shadow-2xl relative overflow-hidden"
-      initial={{ opacity: 0, y: 20 }}
+      className="bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-xl p-6 relative overflow-hidden"
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
+      transition={{ duration: 0.35 }}
     >
       {/* Win Flash Overlay */}
       <AnimatePresence>
@@ -206,42 +205,36 @@ export default function UserStats({ address }: UserStatsProps) {
         )}
       </AnimatePresence>
 
-      {/* Decorative circles */}
-      <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-      <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+      <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--accent-green)]/5 rounded-full -translate-y-1/2 translate-x-1/2" />
 
       <div className="relative z-10">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <motion.div
-              className="p-3 bg-[#F5F5DC] rounded-2xl"
-              whileHover={{ scale: 1.1, rotate: 5 }}
+              className="p-2.5 bg-[var(--accent-green)]/15 rounded-lg"
+              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              <Trophy className="text-[#0A696C]" size={24} />
+              <Trophy className="text-[var(--accent-green)]" size={20} />
             </motion.div>
             <div>
-              <h3 className="text-xl font-bold text-white">Your Stats</h3>
-              <p className="text-xs text-white/60">Performance Overview</p>
+              <h3 className="text-base font-bold text-[var(--text-primary)] font-[family-name:var(--font-display)]" style={{ fontFamily: 'var(--font-display)' }}>Your Stats</h3>
+              <p className="text-[11px] text-[var(--text-dim)] font-[family-name:var(--font-mono)]">Performance</p>
             </div>
           </div>
           <AnimatePresence>
             {userStats.currentStreak > 0 && (
               <motion.div
-                className="flex items-center gap-1 px-3 py-1.5 bg-orange-500 rounded-full"
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--accent-amber)] text-[var(--bg-deep)] rounded-lg font-[family-name:var(--font-mono)] font-bold text-xs"
                 initial={{ scale: 0, rotate: -180 }}
                 animate={{ scale: 1, rotate: 0 }}
                 exit={{ scale: 0 }}
                 transition={{ type: "spring", stiffness: 500, damping: 25 }}
               >
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1] }}
-                  transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 1 }}
-                >
-                  <Flame size={16} className="text-white" />
+                <motion.div animate={{ scale: [1, 1.15, 1] }} transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 1 }}>
+                  <Flame size={14} className="text-[var(--bg-deep)]" />
                 </motion.div>
-                <span className="text-sm font-bold text-white">{userStats.currentStreak}</span>
+                <span>{userStats.currentStreak}</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -278,107 +271,64 @@ export default function UserStats({ address }: UserStatsProps) {
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: "spring", stiffness: 300, damping: 20 }}
             >
-              <span className="text-3xl font-black text-white">{userStats.winRate}%</span>
-              <span className="text-xs text-white/60 font-medium">Win Rate</span>
+              <span className="text-2xl font-black font-[family-name:var(--font-mono)] text-[var(--text-primary)]" style={{ fontFamily: 'var(--font-mono)' }}>{userStats.winRate}%</span>
+              <span className="text-[11px] text-[var(--text-dim)] font-[family-name:var(--font-mono)]">Win Rate</span>
             </motion.div>
           </div>
         </div>
 
-        {/* Win/Loss Legend */}
-        <div className="flex justify-center gap-6 mb-6">
-          <motion.div
-            className="flex items-center gap-2"
-            animate={winFlash ? { scale: [1, 1.2, 1] } : {}}
-            transition={{ duration: 0.3 }}
-          >
+        <div className="flex justify-center gap-6 mb-5">
+          <motion.div className="flex items-center gap-2" animate={winFlash ? { scale: [1, 1.1, 1] } : {}} transition={{ duration: 0.3 }}>
             <motion.div
-              className="w-3 h-3 rounded-full bg-[#4ADE80]"
-              animate={winFlash ? { scale: [1, 1.5, 1], boxShadow: ['0 0 0px #4ADE80', '0 0 20px #4ADE80', '0 0 0px #4ADE80'] } : {}}
+              className="w-2.5 h-2.5 rounded-full bg-[var(--accent-green)]"
+              animate={winFlash ? { scale: [1, 1.4, 1], boxShadow: ['0 0 0 var(--accent-green)', '0 0 12px var(--accent-green)', '0 0 0 var(--accent-green)'] } : {}}
             />
-            <span className="text-sm text-white/80">Wins</span>
-            <motion.span
-              className="text-sm font-bold text-[#4ADE80]"
-              key={userStats.wins}
-              initial={{ scale: 1.5, color: '#fff' }}
-              animate={{ scale: 1, color: '#4ADE80' }}
-              transition={{ duration: 0.5 }}
-            >
+            <span className="text-xs text-[var(--text-muted)] font-[family-name:var(--font-mono)]">Wins</span>
+            <motion.span className="text-xs font-bold text-[var(--accent-green)] font-[family-name:var(--font-mono)]" key={userStats.wins} initial={{ scale: 1.3 }} animate={{ scale: 1 }} transition={{ duration: 0.4 }}>
               {userStats.wins}
             </motion.span>
           </motion.div>
-          <motion.div
-            className="flex items-center gap-2"
-            animate={lossFlash ? { scale: [1, 1.2, 1] } : {}}
-            transition={{ duration: 0.3 }}
-          >
+          <motion.div className="flex items-center gap-2" animate={lossFlash ? { scale: [1, 1.1, 1] } : {}} transition={{ duration: 0.3 }}>
             <motion.div
-              className="w-3 h-3 rounded-full bg-[#F87171]"
-              animate={lossFlash ? { scale: [1, 1.5, 1], boxShadow: ['0 0 0px #F87171', '0 0 20px #F87171', '0 0 0px #F87171'] } : {}}
+              className="w-2.5 h-2.5 rounded-full bg-[var(--accent-red)]"
+              animate={lossFlash ? { scale: [1, 1.4, 1], boxShadow: ['0 0 0 var(--accent-red)', '0 0 12px var(--accent-red)', '0 0 0 var(--accent-red)'] } : {}}
             />
-            <span className="text-sm text-white/80">Losses</span>
-            <motion.span
-              className="text-sm font-bold text-[#F87171]"
-              key={userStats.losses}
-              initial={{ scale: 1.5, color: '#fff' }}
-              animate={{ scale: 1, color: '#F87171' }}
-              transition={{ duration: 0.5 }}
-            >
+            <span className="text-xs text-[var(--text-muted)] font-[family-name:var(--font-mono)]">Losses</span>
+            <motion.span className="text-xs font-bold text-[var(--accent-red)] font-[family-name:var(--font-mono)]" key={userStats.losses} initial={{ scale: 1.3 }} animate={{ scale: 1 }} transition={{ duration: 0.4 }}>
               {userStats.losses}
             </motion.span>
           </motion.div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {/* Total Bets */}
+        <div className="grid grid-cols-2 gap-2">
           <motion.div
-            className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10"
-            whileHover={{ scale: 1.02, backgroundColor: 'rgba(255,255,255,0.15)' }}
+            className="bg-[var(--bg-elevated)] rounded-lg p-3 border border-[var(--border-subtle)]"
+            whileHover={{ scale: 1.02 }}
             transition={{ duration: 0.2 }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              <Target size={14} className="text-[#A1BCBD]" />
-              <span className="text-xs text-white/60 font-medium">Total Bets</span>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Target size={12} className="text-[var(--accent-green)]" />
+              <span className="text-[10px] text-[var(--text-dim)] font-[family-name:var(--font-mono)] uppercase tracking-wider">Total Bets</span>
             </div>
-            <motion.div
-              className="text-2xl font-black text-white"
-              key={userStats.totalPredictions}
-              initial={{ scale: 1.3 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", stiffness: 300 }}
-            >
+            <motion.div className="text-xl font-bold font-[family-name:var(--font-mono)] text-[var(--text-primary)]" key={userStats.totalPredictions} initial={{ scale: 1.2 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300 }}>
               {userStats.totalPredictions}
             </motion.div>
           </motion.div>
 
-          {/* Net Profit */}
           <motion.div
-            className={`rounded-2xl p-4 border ${
-              isProfit
-                ? 'bg-green-500/20 border-green-500/30'
-                : 'bg-red-500/20 border-red-500/30'
-            }`}
+            className={`rounded-lg p-3 border ${isProfit ? 'bg-[var(--accent-green-dim)] border-[var(--accent-green)]/30' : 'bg-[var(--accent-red-dim)] border-[var(--accent-red)]/30'}`}
             whileHover={{ scale: 1.02 }}
-            animate={winFlash ? { boxShadow: ['0 0 0px #4ADE80', '0 0 30px #4ADE80', '0 0 0px #4ADE80'] } :
-                     lossFlash ? { boxShadow: ['0 0 0px #F87171', '0 0 30px #F87171', '0 0 0px #F87171'] } : {}}
+            animate={winFlash ? { boxShadow: ['0 0 0 var(--accent-green)', '0 0 20px var(--accent-green)', '0 0 0 var(--accent-green)'] } : lossFlash ? { boxShadow: ['0 0 0 var(--accent-red)', '0 0 20px var(--accent-red)', '0 0 0 var(--accent-red)'] } : {}}
             transition={{ duration: 0.5 }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              {isProfit ? (
-                <motion.div animate={winFlash ? { y: [0, -5, 0] } : {}} transition={{ duration: 0.3, repeat: 3 }}>
-                  <TrendingUp size={14} className="text-green-400" />
-                </motion.div>
-              ) : (
-                <motion.div animate={lossFlash ? { y: [0, 5, 0] } : {}} transition={{ duration: 0.3, repeat: 3 }}>
-                  <TrendingDown size={14} className="text-red-400" />
-                </motion.div>
-              )}
-              <span className="text-xs text-white/60 font-medium">Net Profit</span>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              {isProfit ? <TrendingUp size={12} className="text-[var(--accent-green)]" /> : <TrendingDown size={12} className="text-[var(--accent-red)]" />}
+              <span className="text-[10px] text-[var(--text-dim)] font-[family-name:var(--font-mono)] uppercase tracking-wider">Net P/L</span>
             </div>
             <motion.div
-              className={`text-2xl font-black ${isProfit ? 'text-green-400' : 'text-red-400'}`}
+              className={`text-xl font-bold font-[family-name:var(--font-mono)] ${isProfit ? 'text-[var(--accent-green)]' : 'text-[var(--accent-red)]'}`}
               key={userStats.netProfit}
-              initial={{ scale: 1.3 }}
+              initial={{ scale: 1.2 }}
               animate={{ scale: 1 }}
               transition={{ type: "spring", stiffness: 300 }}
             >
@@ -386,31 +336,24 @@ export default function UserStats({ address }: UserStatsProps) {
             </motion.div>
           </motion.div>
 
-          {/* Streak */}
           <motion.div
-            className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10"
-            whileHover={{ scale: 1.02, backgroundColor: 'rgba(255,255,255,0.15)' }}
+            className="bg-[var(--bg-elevated)] rounded-lg p-3 border border-[var(--border-subtle)]"
+            whileHover={{ scale: 1.02 }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              <Flame size={14} className="text-orange-400" />
-              <span className="text-xs text-white/60 font-medium">Streak</span>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Flame size={12} className="text-[var(--accent-amber)]" />
+              <span className="text-[10px] text-[var(--text-dim)] font-[family-name:var(--font-mono)] uppercase tracking-wider">Streak</span>
             </div>
             <div className="flex items-center gap-2">
-              <motion.span
-                className="text-2xl font-black text-white"
-                key={userStats.currentStreak}
-                initial={{ scale: 1.5, rotate: 10 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", stiffness: 300 }}
-              >
+              <motion.span className="text-xl font-bold font-[family-name:var(--font-mono)] text-[var(--text-primary)]" key={userStats.currentStreak} initial={{ scale: 1.2 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300 }}>
                 {userStats.currentStreak}
               </motion.span>
               <AnimatePresence>
                 {userStats.currentStreak >= 3 && (
                   <motion.span
-                    className="text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-full font-bold"
-                    initial={{ scale: 0, x: -10 }}
-                    animate={{ scale: 1, x: 0 }}
+                    className="text-[10px] bg-[var(--accent-amber)]/20 text-[var(--accent-amber)] px-1.5 py-0.5 rounded font-bold font-[family-name:var(--font-mono)]"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
                     exit={{ scale: 0 }}
                   >
                     HOT
@@ -420,34 +363,22 @@ export default function UserStats({ address }: UserStatsProps) {
             </div>
           </motion.div>
 
-          {/* Performance Rating */}
           <motion.div
-            className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10"
-            whileHover={{ scale: 1.02, backgroundColor: 'rgba(255,255,255,0.15)' }}
+            className="bg-[var(--bg-elevated)] rounded-lg p-3 border border-[var(--border-subtle)]"
+            whileHover={{ scale: 1.02 }}
           >
-            <div className="flex items-center gap-2 mb-2">
-              <Zap size={14} className="text-yellow-400" />
-              <span className="text-xs text-white/60 font-medium">Rating</span>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Zap size={12} className="text-[var(--accent-amber)]" />
+              <span className="text-[10px] text-[var(--text-dim)] font-[family-name:var(--font-mono)] uppercase tracking-wider">Rating</span>
             </div>
-            <div className="flex items-center gap-2">
-              <motion.span
-                className="text-2xl font-black text-white"
-                key={winRateNum}
-                initial={{ scale: 1.5 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 300 }}
-              >
+            <div className="flex items-center gap-1.5">
+              <motion.span className="text-xl font-bold font-[family-name:var(--font-mono)] text-[var(--text-primary)]" key={winRateNum} initial={{ scale: 1.2 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 300 }}>
                 {winRateNum >= 70 ? 'S' : winRateNum >= 55 ? 'A' : winRateNum >= 45 ? 'B' : winRateNum >= 30 ? 'C' : 'D'}
               </motion.span>
               <div className="flex">
                 {[...Array(winRateNum >= 70 ? 3 : winRateNum >= 50 ? 2 : 1)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ scale: 0, rotate: -180 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ delay: i * 0.1, type: "spring", stiffness: 500 }}
-                  >
-                    <Zap size={12} className="text-yellow-400 fill-yellow-400" />
+                  <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: i * 0.08, type: "spring", stiffness: 500 }}>
+                    <Zap size={10} className="text-[var(--accent-amber)] fill-[var(--accent-amber)]" />
                   </motion.div>
                 ))}
               </div>
@@ -455,19 +386,18 @@ export default function UserStats({ address }: UserStatsProps) {
           </motion.div>
         </div>
 
-        {/* Progress Bar */}
         {userStats.totalPredictions > 0 && (
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <div className="flex justify-between text-xs mb-2">
-              <span className="text-white/60">Win Progress</span>
-              <span className="text-[#F5F5DC] font-bold">{userStats.wins} / {userStats.totalPredictions}</span>
+          <div className="mt-4 pt-4 border-t border-[var(--border-subtle)]">
+            <div className="flex justify-between text-[11px] mb-1.5 font-[family-name:var(--font-mono)]">
+              <span className="text-[var(--text-dim)]">Win progress</span>
+              <span className="text-[var(--text-muted)] font-bold">{userStats.wins} / {userStats.totalPredictions}</span>
             </div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-[var(--bg-elevated)] rounded-full overflow-hidden">
               <motion.div
-                className="h-full bg-gradient-to-r from-[#4ADE80] to-[#22C55E] rounded-full"
+                className="h-full bg-[var(--accent-green)] rounded-full"
                 initial={{ width: 0 }}
                 animate={{ width: `${userStats.winRate}%` }}
-                transition={{ duration: 1, ease: "easeOut" }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
               />
             </div>
           </div>

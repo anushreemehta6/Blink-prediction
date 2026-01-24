@@ -15,6 +15,7 @@ interface WalletContextType {
   provider: any | null;
   connectWallet: () => Promise<void>;
   disconnect: () => void;
+  
 }
 
 // Create the context

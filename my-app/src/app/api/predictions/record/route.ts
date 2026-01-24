@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
       amount, 
       multiplier, 
       txHash,
-      status     
+      status,
+      isAutoTrade    // ✅ ADD THIS
     } = body;
 
     // 1. Strict Validation
@@ -45,11 +46,12 @@ export async function POST(req: NextRequest) {
       multiplier: Number(multiplier),
       txHash: txHash,
       status: status || 'OPEN',
-      payout: '0'
+      payout: '0',
+      isAutoTrade: isAutoTrade || false  // ✅ ADD THIS - defaults to false if not provided
     });
 
     await prediction.save();
-    console.log(`💾 Prediction Recorded: #${positionId} [${asset}] for ${cleanAddress}`);
+    console.log(`💾 Prediction Recorded: #${positionId} [${asset}] for ${cleanAddress} ${isAutoTrade ? '(AUTO)' : ''}`);
 
     return NextResponse.json({ 
       success: true, 

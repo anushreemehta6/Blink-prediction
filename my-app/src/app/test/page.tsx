@@ -3,7 +3,7 @@
 import { useWallet } from '@/context/WalletContext';
 
 export default function TestPage() {
-  const { address, isConnected, isFlask, connect, disconnect } = useWallet();
+  const { address, isConnected, isFlask,  connectWallet: connect, disconnect } = useWallet();
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
