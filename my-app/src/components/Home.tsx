@@ -6,9 +6,11 @@ import { useWallet } from '@/context/WalletContext';
 import Header from './Header';
 import BackgroundGrid from './bgGrid';
 import { dice } from '@/assets';
+import { useRouter } from 'next/navigation';
 
 const Home = () => {
   const { connectWallet, isConnecting } = useWallet();
+  const router = useRouter();
 
   return (
     <>
@@ -34,6 +36,7 @@ const Home = () => {
           <p className="font-[family-name:var(--font-mono)] text-base sm:text-lg text-[var(--text-muted)] mt-5 max-w-xl">
             Click the chart. Set your target. 30 seconds to resolve. Real money on Monad.
           </p>
+          <div className='flex gap-4'>
           <button
             onClick={connectWallet}
             disabled={isConnecting}
@@ -41,8 +44,21 @@ const Home = () => {
             style={{ fontFamily: 'var(--font-mono)' }}
           >
             <Image src={dice} alt="" width={22} height={22} className="opacity-90" />
-            <span>{isConnecting ? 'Connecting…' : 'ENTER ARENA'}</span>
+            <span>{isConnecting ? 'Connecting…' : 'Start Blinking'}</span>
           </button>
+          {/* <button
+            // onClick={connectWallet}
+            // disabled={isConnecting}
+            onClick={() => router.push('/pvp')}
+            className="mt-10 flex items-center gap-3 bg-[var(--accent-green)] text-[var(--bg-deep)] font-[family-name:var(--font-mono)] font-bold px-8 py-4 rounded-lg border-0 transition-all duration-200 hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait disabled:hover:scale-100 disabled:hover:brightness-100"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          >
+            <Image src={dice} alt="" width={22} height={22} className="opacity-90" />
+            <span>PvP mode</span>
+          </button> */}
+
+          </div>
+          
         </div>
       </div>
     </>
