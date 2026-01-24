@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { AssetSymbol, ASSET_METADATA } from '@/lib/constants';
 import { TargetBlock, Viewport } from './GameEngine';
 
@@ -9,13 +9,37 @@ interface GameCanvasProps {
   priceHistory: { time: number; price: number }[];
   blocks: TargetBlock[];
   selectedAsset: AssetSymbol;
-  
+
   viewport: Viewport;
   visibleBounds: { min: number; max: number; range: number };
-  
+
   onPan: (dx: number, dy: number, w: number, h: number) => void;
   onPlaceBet: (x: number, y: number, w: number, h: number) => void;
 }
+
+// Calculate multiplier based on distance from current price (same logic as GameEngine)
+const calculateMultiplier = (targetPrice: number, currentPrice: number): number => {
+  const diff = Math.abs(targetPrice - currentPrice);
+  const distanceBps = (diff * 10000) / currentPrice;
+  const bonus = (distanceBps * 2000) / 1000;
+  let multiplier = (110 + bonus) / 100;
+  return Math.min(Math.max(multiplier, 1.1), 50.0);
+};
+
+// Get color based on multiplier value - adjusted for typical range (1.1x to 1.3x)
+const getMultiplierColor = (multiplier: number): { bg: string; border: string; text: string } => {
+  if (multiplier >= 1.25) {
+    return { bg: 'rgba(234, 179, 8, 0.35)', border: '#eab308', text: '#fde047' }; // Gold - highest
+  } else if (multiplier >= 1.2) {
+    return { bg: 'rgba(249, 115, 22, 0.3)', border: '#f97316', text: '#fdba74' }; // Orange
+  } else if (multiplier >= 1.17) {
+    return { bg: 'rgba(34, 197, 94, 0.25)', border: '#22c55e', text: '#86efac' }; // Green
+  } else if (multiplier >= 1.14) {
+    return { bg: 'rgba(6, 182, 212, 0.2)', border: '#06b6d4', text: '#67e8f9' }; // Cyan
+  } else {
+    return { bg: 'rgba(99, 102, 241, 0.15)', border: '#6366f1', text: '#a5b4fc' }; // Indigo - lowest (near current price)
+  }
+};
 
 export default function GameCanvas({
   currentPrice,
@@ -76,34 +100,85 @@ export default function GameCanvas({
     // --- DRAWING START ---
     ctx.clearRect(0, 0, width, height);
 
-    // A. Draw Infinite Grid
-    // We calculate "Grid Steps" based on World Coordinates so lines stay anchored
+    // A. Draw Interactive Grid Squares with Multipliers (ONLY IN FUTURE/BETTING AREA)
+    const now = Date.now();
+
+    // Grid settings
+    const TIME_STEP = 5000; // 5 seconds per column
+    const PRICE_ROWS = 10; // Number of price rows
+    const priceStep = visibleBounds.range / PRICE_ROWS;
+
+    // Calculate the "NOW" line X position
+    const { x: nowLineX } = worldToScreen(now, currentPrice, width, height);
+
+    // Only draw grid in FUTURE area (after NOW line)
+    // Start from NOW, go into the future
+    const firstGridTime = Math.ceil(now / TIME_STEP) * TIME_STEP; // Round up to next grid line
+    const endTime = now + (width * 0.5 * MS_PER_PIXEL); // Future time visible on screen
+    const firstGridPrice = Math.floor(visibleBounds.min / priceStep) * priceStep;
+
+    // Draw each grid cell (only in future/betting area)
+    for (let t = firstGridTime; t < endTime + TIME_STEP; t += TIME_STEP) {
+      for (let p = firstGridPrice; p < visibleBounds.max + priceStep; p += priceStep) {
+        // Get cell corners
+        const { x: x1, y: y1 } = worldToScreen(t, p + priceStep, width, height);
+        const { x: x2, y: y2 } = worldToScreen(t + TIME_STEP, p, width, height);
+
+        // Clamp left edge to NOW line (don't draw in past)
+        const clampedX1 = Math.max(x1, nowLineX);
+        const cellWidth = x2 - clampedX1;
+        const cellHeight = y2 - y1;
+
+        // Skip cells that are off-screen or have no width
+        if (x2 < nowLineX || clampedX1 > width || y2 < 0 || y1 > height || cellWidth <= 0) continue;
+
+        // Calculate multiplier for center of this cell
+        const cellCenterPrice = p + priceStep / 2;
+        const multiplier = calculateMultiplier(cellCenterPrice, currentPrice);
+        const colors = getMultiplierColor(multiplier);
+
+        // Check if mouse is hovering this cell (only in betting area)
+        const isHovered = mousePos &&
+          mousePos.x >= clampedX1 && mousePos.x <= x2 &&
+          mousePos.y >= y1 && mousePos.y <= y2;
+
+        // Draw cell background
+        ctx.fillStyle = isHovered ? colors.border + '40' : colors.bg;
+        ctx.fillRect(clampedX1, y1, cellWidth, cellHeight);
+
+        // Draw cell border
+        ctx.strokeStyle = isHovered ? colors.border : 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = isHovered ? 2 : 1;
+        ctx.strokeRect(clampedX1, y1, cellWidth, cellHeight);
+
+        // Draw multiplier text (only if cell is big enough)
+        if (cellWidth > 40 && cellHeight > 25) {
+          ctx.fillStyle = isHovered ? '#fff' : colors.text;
+          ctx.font = isHovered ? 'bold 14px sans-serif' : '11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${multiplier.toFixed(2)}x`, clampedX1 + cellWidth / 2, y1 + cellHeight / 2);
+        }
+      }
+    }
+
+    // Draw subtle grid lines in the PAST area (no interactive squares)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-
-    // Vertical Lines (Time: every 5 seconds)
-    const now = Date.now();
-    const startTime = now - viewport.timeOffset - (width * 0.7 * MS_PER_PIXEL);
-    const endTime = startTime + (width * MS_PER_PIXEL);
-    // Round to nearest 5s (5000ms)
-    const firstGridTime = Math.floor(startTime / 5000) * 5000;
-    
-    for (let t = firstGridTime; t < endTime; t += 5000) {
-        const { x } = worldToScreen(t, visibleBounds.min, width, height);
+    const pastStartTime = now - viewport.timeOffset - (width * 0.7 * MS_PER_PIXEL);
+    const pastFirstGridTime = Math.floor(pastStartTime / TIME_STEP) * TIME_STEP;
+    for (let t = pastFirstGridTime; t < now; t += TIME_STEP) {
+      const { x } = worldToScreen(t, visibleBounds.min, width, height);
+      if (x < nowLineX) {
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
+      }
     }
-
-    // Horizontal Lines (Price)
-    // Dynamic step size based on zoom (simplified logic here)
-    const priceStep = visibleBounds.range / 10; 
-    const firstGridPrice = Math.floor(visibleBounds.min / priceStep) * priceStep;
-    
     for (let p = firstGridPrice; p < visibleBounds.max; p += priceStep) {
-        const { y } = worldToScreen(now, p, width, height);
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
+      const { y } = worldToScreen(now, p, width, height);
+      ctx.moveTo(0, y);
+      ctx.lineTo(nowLineX, y);
     }
     ctx.stroke();
 
@@ -146,7 +221,7 @@ export default function GameCanvas({
     }
 
     // C. Draw "NOW" Line
-    const { x: nowX, y: nowY } = worldToScreen(now, currentPrice, width, height);
+    const { x: nowX } = worldToScreen(now, currentPrice, width, height);
     ctx.beginPath();
     ctx.setLineDash([5, 5]);
     ctx.strokeStyle = '#fff';
