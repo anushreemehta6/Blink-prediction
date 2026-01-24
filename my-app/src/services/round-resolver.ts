@@ -20,8 +20,7 @@ const THIRTY_ENGINE_ADDRESS = getAddress(process.env.THIRTY_ENGINE_ADDRESS as st
 const USDC_ADDRESS = getAddress('0xD9a4C52EfA4EfA8F698EC9941061c9ef3387DBc6');
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://monad-testnet.drpc.org/';
 const PRIVATE_KEY = process.env.BOT_PRIVATE_KEY as `0x${string}`;
-const APP_API_BASE = 'http://127.0.0.1:3000/api'; 
-
+const APP_API_BASE = process.env.APP_API_BASE || 'http://127.0.0.1:3000/api';
 // Pyth Price IDs (For checking win status locally)
 const PYTH_PRICE_IDS: Record<string, string> = {
   ETH: '0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace',
