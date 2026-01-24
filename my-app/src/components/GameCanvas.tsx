@@ -381,6 +381,71 @@ export default function GameCanvas({
     }
     ctx.stroke();
 
+    // Y-AXIS PRICE LABELS
+    const Y_AXIS_WIDTH = 70; // Width reserved for price labels
+
+    // Draw Y-axis background
+    ctx.fillStyle = 'rgba(5, 24, 30, 0.9)';
+    ctx.fillRect(0, 0, Y_AXIS_WIDTH, height);
+
+    // Draw Y-axis border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Y_AXIS_WIDTH, 0);
+    ctx.lineTo(Y_AXIS_WIDTH, height);
+    ctx.stroke();
+
+    // Format price based on magnitude
+    const formatPrice = (price: number): string => {
+      if (price >= 10000) return price.toFixed(0);
+      if (price >= 1000) return price.toFixed(1);
+      if (price >= 100) return price.toFixed(2);
+      if (price >= 1) return price.toFixed(3);
+      return price.toFixed(6);
+    };
+
+    // Draw price labels at each grid line
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+
+    for (let p = firstGridPrice; p <= visibleBounds.max; p += priceStep) {
+      const { y } = worldToScreen(now, p, width, height);
+
+      // Skip if off-screen
+      if (y < 10 || y > height - 10) continue;
+
+      // Highlight current price level
+      const isNearCurrentPrice = Math.abs(p - currentPrice) < priceStep * 0.5;
+
+      if (isNearCurrentPrice) {
+        // Current price badge
+        ctx.fillStyle = ASSET_COLOR;
+        ctx.fillRect(2, y - 10, Y_AXIS_WIDTH - 6, 20);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px monospace';
+      } else {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.font = '11px monospace';
+      }
+
+      ctx.fillText(`$${formatPrice(p)}`, Y_AXIS_WIDTH - 8, y);
+    }
+
+    // Draw current price indicator on Y-axis (always visible)
+    const { y: currentPriceY } = worldToScreen(now, currentPrice, width, height);
+    if (currentPriceY > 10 && currentPriceY < height - 10) {
+      // Price tag background
+      ctx.fillStyle = ASSET_COLOR;
+      ctx.beginPath();
+      ctx.moveTo(Y_AXIS_WIDTH, currentPriceY);
+      ctx.lineTo(Y_AXIS_WIDTH + 8, currentPriceY - 6);
+      ctx.lineTo(Y_AXIS_WIDTH + 8, currentPriceY + 6);
+      ctx.closePath();
+      ctx.fill();
+    }
+
     // B. Draw Price Line with Gradient
     if (priceHistory.length > 1) {
         // Gradient Fill
