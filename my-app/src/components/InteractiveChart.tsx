@@ -2,14 +2,8 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Trophy } from 'lucide-react';
-
-const ASSET_METADATA: any = {
-  BTC: { color: '#F7931A' },
-  ETH: { color: '#627EEA' },
-  SOL: { color: '#14F195' }
-};
-
-type AssetSymbol = 'BTC' | 'ETH' | 'SOL';
+// ✅ IMPORT CONSTANTS: This fixes the missing colors/assets issues
+import { ASSET_METADATA, AssetSymbol } from '@/lib/constants';
 
 interface TargetBlock {
   id: string;
@@ -28,7 +22,7 @@ interface InteractiveChartProps {
   currentPrice: number | null;
   userAddress?: string;
   selectedAmount?: number;
-  selectedAsset: AssetSymbol;
+  selectedAsset: AssetSymbol; // ✅ Uses the imported type (includes BNB)
   onPlaceBet: (targetPrice: number, amount: number, multiplier: number) => Promise<void>;
 }
 
@@ -55,6 +49,7 @@ export default function InteractiveChart({
   const TOTAL_COLUMNS = 6;
   const HISTORY_COLUMNS = 2; 
 
+  // ✅ DYNAMIC COLOR: Fetches the correct color from your constants (e.g., Orange for BTC)
   const assetColor = ASSET_METADATA[selectedAsset]?.color || '#0A696C';
 
   useEffect(() => {
@@ -112,7 +107,6 @@ export default function InteractiveChart({
       return updated.filter(p => currTime - p.time < 60000);
     });
 
-    // ✅ FIXED: Only mark as MISSED when expired, don't check for HIT
     setBlocks(prev => {
       const newBlocks = prev.map(block => {
         if (block.status !== 'PENDING') return block;
@@ -452,6 +446,5 @@ export default function InteractiveChart({
         })}
       </div>
     </div>
- 
-);
+  );
 }

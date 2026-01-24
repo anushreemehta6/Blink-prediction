@@ -1,6 +1,6 @@
 import { type Address } from 'viem';
 
-// Official Pyth Price IDs (without 0x for API calls)
+// Official Pyth Price IDs (Standard for Hermes V2)
 export const PYTH_PRICE_IDS = {
   ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
   BTC: "e62df6c8b4a941d4d872153919f0485733924556a046f0b21ea70b03610c093c",
@@ -8,20 +8,25 @@ export const PYTH_PRICE_IDS = {
   BNB: "2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f",
 } as const;
 
+export type AssetSymbol = keyof typeof PYTH_PRICE_IDS;
+
 export const MONAD_CONFIG = {
   CHAIN_NAME: 'Monad Testnet',
   CONTRACT_ADDRESS: '0x2880aB155794e7179c9eE2e38200202908C17B43' as Address,
   HERMES_ENDPOINT: 'https://hermes.pyth.network/v2/updates/price/latest',
 } as const;
 
-export type AssetSymbol = keyof typeof PYTH_PRICE_IDS;
-
-// Helper to get ID with 0x prefix for Smart Contracts
+// Helper: Adds 0x for Contract Calls (Write)
 export const getPriceId = (symbol: AssetSymbol): `0x${string}` => {
   return `0x${PYTH_PRICE_IDS[symbol]}` as `0x${string}`;
 };
 
-// 🎨 Enhanced Asset Metadata with better colors
+// Helper: Raw ID for API Calls (Read)
+export const getPythId = (symbol: AssetSymbol): string => {
+  return PYTH_PRICE_IDS[symbol];
+};
+
+// 🎨 Centralized Metadata
 export const ASSET_METADATA: Record<AssetSymbol, { 
   name: string; 
   color: string; 
