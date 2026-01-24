@@ -89,10 +89,27 @@ export default function GameEngine({
 
   // Block Status Checking (Win/Loss Logic)
   useEffect(() => {
+    if (!currentPrice) return;
+
     setBlocks(prev => prev.map(block => {
       if (block.status !== 'PENDING') return block;
-      // Optimistic client-side expiry (Visual feedback only)
-      if (Date.now() > block.expiryTime) return { ...block, status: 'MISSED' };
+
+      // Check if price HIT the target
+      // For upward bets: win if current price >= target
+      // For downward bets: win if current price <= target
+      const priceHit = block.isUpward
+        ? currentPrice >= block.targetPrice
+        : currentPrice <= block.targetPrice;
+
+      if (priceHit) {
+        return { ...block, status: 'HIT', hitTime: Date.now() };
+      }
+
+      // Check if expired (MISSED)
+      if (Date.now() > block.expiryTime) {
+        return { ...block, status: 'MISSED' };
+      }
+
       return block;
     }));
   }, [currentPrice]); // Check every time price updates
