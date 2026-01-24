@@ -84,8 +84,9 @@ export default function GameCanvas({
   const MS_PER_PIXEL = 50 * viewport.zoom; // Zoom scaling for time axis
 
   // Grid settings - MUST MATCH GameEngine.tsx
-  const TIME_STEP = 5000; // 5 seconds per column
+  const TIME_STEP = 2500; // 2.5 seconds per column (half width = more columns)
   const PRICE_ROWS = 10; // Number of price rows
+  const BETTING_COLUMNS = 12; // Number of betting columns to show in the future (doubled since width is halved)
 
   // Create burst particles (WIN animation) - BIGGER, FASTER, MORE SPREAD
   const createBurstParticles = (x: number, y: number) => {
@@ -266,14 +267,27 @@ export default function GameCanvas({
     }
   };
 
+  // Layout constants
+  const BETTING_AREA_PERCENT = 0.75; // Betting area takes 75% of screen width
+
   // --- 1. COORDINATE SYSTEM ---
   // Converts "World Data" (Time/Price) to "Screen Pixels" (X/Y)
   const worldToScreen = (time: number, price: number, width: number, height: number) => {
-    // X-Axis: "NOW" is fixed at 70% of screen width. Time flows to the left.
-    // viewport.timeOffset allows us to pan back and forth.
+    // X-Axis: Calculate positions so betting area fills from NOW line to right edge
+    // The betting area has BETTING_COLUMNS columns, each TIME_STEP ms wide
+    // We want the last column to end at the right edge of the screen
     const now = Date.now();
+    const bettingAreaDuration = BETTING_COLUMNS * TIME_STEP; // Total time span of betting area
+
+    // Calculate where NOW line should be positioned
+    // NOW line position = screen width - betting area width
+    const bettingAreaWidth = width * BETTING_AREA_PERCENT; // Betting area takes 75% of screen
+    const nowLinePosition = width - bettingAreaWidth;
+
+    // Calculate pixel position for any given time
+    const pixelsPerMs = bettingAreaWidth / bettingAreaDuration;
     const timeDiff = time - now + viewport.timeOffset;
-    const x = (width * 0.7) + (timeDiff / MS_PER_PIXEL);
+    const x = nowLinePosition + (timeDiff * pixelsPerMs);
 
     // Y-Axis: Mapped based on visible price bounds
     const priceRatio = (price - visibleBounds.min) / visibleBounds.range;
@@ -315,8 +329,23 @@ export default function GameCanvas({
     // Only draw grid in FUTURE area (after NOW line)
     // Start from NOW, go into the future
     const firstGridTime = Math.ceil(now / TIME_STEP) * TIME_STEP; // Round up to next grid line
-    const endTime = now + (width * 0.5 * MS_PER_PIXEL); // Future time visible on screen
+    // Fixed number of betting columns - screen ends where betting area ends
+    const endTime = firstGridTime + (BETTING_COLUMNS * TIME_STEP);
     const firstGridPrice = Math.floor(visibleBounds.min / priceStep) * priceStep;
+
+    // Helper to check if a block exists in this cell
+    const getBlockInCell = (cellTime: number, cellPriceMin: number, cellPriceMax: number): TargetBlock | null => {
+      return blocks.find(block => {
+        // Check if block's expiry time falls in this time column
+        const blockGridTime = Math.floor(block.expiryTime / TIME_STEP) * TIME_STEP;
+        const timeMatches = blockGridTime === cellTime;
+
+        // Check if block's target price falls in this price row
+        const priceMatches = block.targetPrice >= cellPriceMin && block.targetPrice < cellPriceMax;
+
+        return timeMatches && priceMatches;
+      }) || null;
+    };
 
     // Draw each grid cell (only in future/betting area)
     for (let t = firstGridTime; t < endTime + TIME_STEP; t += TIME_STEP) {
@@ -343,22 +372,97 @@ export default function GameCanvas({
           mousePos.x >= clampedX1 && mousePos.x <= x2 &&
           mousePos.y >= y1 && mousePos.y <= y2;
 
-        // Draw cell background
-        ctx.fillStyle = isHovered ? colors.border + '40' : colors.bg;
-        ctx.fillRect(clampedX1, y1, cellWidth, cellHeight);
+        // Check if there's a bet in this cell
+        const blockInCell = getBlockInCell(t, p, p + priceStep);
+        const cellCenterX = clampedX1 + cellWidth / 2;
+        const cellCenterY = y1 + cellHeight / 2;
 
-        // Draw cell border
-        ctx.strokeStyle = isHovered ? colors.border : 'rgba(255, 255, 255, 0.15)';
-        ctx.lineWidth = isHovered ? 2 : 1;
-        ctx.strokeRect(clampedX1, y1, cellWidth, cellHeight);
+        if (blockInCell) {
+          // --- CELL HAS A BET - Draw as betting block ---
 
-        // Draw multiplier text (only if cell is big enough)
-        if (cellWidth > 40 && cellHeight > 25) {
-          ctx.fillStyle = isHovered ? '#fff' : colors.text;
-          ctx.font = isHovered ? 'bold 14px sans-serif' : '11px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(`${multiplier.toFixed(2)}x`, clampedX1 + cellWidth / 2, y1 + cellHeight / 2);
+          // Trigger animations for status changes
+          if (blockInCell.status === 'HIT' && !processedBlocksRef.current.has(blockInCell.id + '_hit')) {
+            processedBlocksRef.current.add(blockInCell.id + '_hit');
+            createBurstParticles(cellCenterX, cellCenterY);
+          } else if (blockInCell.status === 'MISSED' && !processedBlocksRef.current.has(blockInCell.id + '_miss')) {
+            processedBlocksRef.current.add(blockInCell.id + '_miss');
+            createShatterParticles(cellCenterX, cellCenterY, cellWidth, cellHeight);
+          }
+
+          // Determine color and glow based on status
+          let blockColor = ASSET_COLOR;
+          let glow = 15;
+          let shouldDraw = true;
+
+          if (blockInCell.status === 'HIT') {
+            blockColor = '#4ade80'; // Green
+            glow = 30;
+            // Fade out after animation
+            const timeSinceHit = blockInCell.hitTime ? Date.now() - blockInCell.hitTime : 500;
+            if (timeSinceHit > 500) {
+              ctx.globalAlpha = Math.max(0, 1 - (timeSinceHit - 500) / 1000);
+              if (ctx.globalAlpha <= 0) shouldDraw = false;
+            }
+          } else if (blockInCell.status === 'MISSED') {
+            blockColor = '#ef4444'; // Red
+            ctx.globalAlpha = 0.4;
+          }
+
+          if (shouldDraw) {
+            // Draw cell background with bet styling
+            ctx.shadowBlur = glow;
+            ctx.shadowColor = blockColor;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(clampedX1, y1, cellWidth, cellHeight);
+
+            // Draw cell border with bet color
+            ctx.strokeStyle = blockColor;
+            ctx.lineWidth = 3;
+            ctx.strokeRect(clampedX1, y1, cellWidth, cellHeight);
+            ctx.shadowBlur = 0;
+
+            // Draw bet info text
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            if (cellWidth > 50 && cellHeight > 35) {
+              // Large cell - show amount and multiplier on separate lines
+              const fontSize = Math.min(cellHeight / 4, 12);
+              ctx.font = `bold ${fontSize}px sans-serif`;
+              ctx.fillText(`$${blockInCell.amount}`, cellCenterX, cellCenterY - cellHeight * 0.15);
+              ctx.font = `bold ${fontSize + 2}px sans-serif`;
+              ctx.fillStyle = blockInCell.status === 'HIT' ? '#4ade80' : blockInCell.status === 'MISSED' ? '#ef4444' : colors.text;
+              ctx.fillText(`${blockInCell.multiplier.toFixed(2)}x`, cellCenterX, cellCenterY + cellHeight * 0.18);
+            } else {
+              // Small cell - show just multiplier
+              const fontSize = Math.min(cellHeight / 3, 11);
+              ctx.font = `bold ${fontSize}px sans-serif`;
+              ctx.fillText(`${blockInCell.multiplier.toFixed(2)}x`, cellCenterX, cellCenterY);
+            }
+          }
+
+          ctx.globalAlpha = 1.0;
+        } else {
+          // --- EMPTY CELL - Draw as multiplier grid cell ---
+
+          // Draw cell background
+          ctx.fillStyle = isHovered ? colors.border + '40' : colors.bg;
+          ctx.fillRect(clampedX1, y1, cellWidth, cellHeight);
+
+          // Draw cell border
+          ctx.strokeStyle = isHovered ? colors.border : 'rgba(255, 255, 255, 0.15)';
+          ctx.lineWidth = isHovered ? 2 : 1;
+          ctx.strokeRect(clampedX1, y1, cellWidth, cellHeight);
+
+          // Draw multiplier text (only if cell is big enough)
+          if (cellWidth > 40 && cellHeight > 25) {
+            ctx.fillStyle = isHovered ? '#fff' : colors.text;
+            ctx.font = isHovered ? 'bold 14px sans-serif' : '11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${multiplier.toFixed(2)}x`, cellCenterX, cellCenterY);
+          }
         }
       }
     }
@@ -382,6 +486,72 @@ export default function GameCanvas({
       ctx.lineTo(nowLineX, y);
     }
     ctx.stroke();
+
+    // Draw blocks that are in the PAST (expired) - show their final status
+    blocks.forEach(block => {
+      const blockGridTime = Math.floor(block.expiryTime / TIME_STEP) * TIME_STEP;
+
+      // Only draw if block is in the past
+      if (blockGridTime >= firstGridTime) return;
+
+      // Get cell position
+      const { x: x1, y: y1 } = worldToScreen(blockGridTime, block.targetPrice + priceStep / 2, width, height);
+      const { x: x2, y: y2 } = worldToScreen(blockGridTime + TIME_STEP, block.targetPrice - priceStep / 2, width, height);
+
+      const cellCenterX = (x1 + x2) / 2;
+      const cellCenterY = (y1 + y2) / 2;
+      const cellWidth = x2 - x1;
+      const cellHeight = y2 - y1;
+
+      // Skip if off-screen
+      if (x2 < 0 || x1 > nowLineX || y2 < 0 || y1 > height) return;
+
+      // Trigger animations
+      if (block.status === 'HIT' && !processedBlocksRef.current.has(block.id + '_hit')) {
+        processedBlocksRef.current.add(block.id + '_hit');
+        createBurstParticles(cellCenterX, cellCenterY);
+      } else if (block.status === 'MISSED' && !processedBlocksRef.current.has(block.id + '_miss')) {
+        processedBlocksRef.current.add(block.id + '_miss');
+        createShatterParticles(cellCenterX, cellCenterY, cellWidth, cellHeight);
+      }
+
+      // Draw based on status
+      let blockColor = '#888';
+      let shouldDraw = true;
+
+      if (block.status === 'HIT') {
+        blockColor = '#4ade80';
+        const timeSinceHit = block.hitTime ? Date.now() - block.hitTime : 500;
+        if (timeSinceHit > 500) {
+          ctx.globalAlpha = Math.max(0, 1 - (timeSinceHit - 500) / 1000);
+          if (ctx.globalAlpha <= 0) shouldDraw = false;
+        }
+      } else if (block.status === 'MISSED') {
+        blockColor = '#ef4444';
+        ctx.globalAlpha = 0.3;
+      }
+
+      if (shouldDraw) {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = blockColor;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(x1, y1, cellWidth, cellHeight);
+
+        ctx.strokeStyle = blockColor;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x1, y1, cellWidth, cellHeight);
+        ctx.shadowBlur = 0;
+
+        // Draw text
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(`${block.multiplier.toFixed(2)}x`, cellCenterX, cellCenterY);
+      }
+
+      ctx.globalAlpha = 1.0;
+    });
 
     // Y-AXIS PRICE LABELS
     const Y_AXIS_WIDTH = 70; // Width reserved for price labels
@@ -484,105 +654,139 @@ export default function GameCanvas({
         });
         ctx.stroke();
         ctx.shadowBlur = 0; // Reset glow
+
+        // Draw bright glowing pointer at the end of the price line (current price position)
+        const lastPoint = priceHistory[priceHistory.length - 1];
+        const { x: pointerX, y: pointerY } = worldToScreen(lastPoint.time, lastPoint.price, width, height);
+
+        // Outer glow ring
+        ctx.beginPath();
+        ctx.arc(pointerX, pointerY, 12, 0, Math.PI * 2);
+        ctx.fillStyle = `${ASSET_COLOR}30`;
+        ctx.fill();
+
+        // Middle glow ring
+        ctx.beginPath();
+        ctx.arc(pointerX, pointerY, 8, 0, Math.PI * 2);
+        ctx.fillStyle = `${ASSET_COLOR}50`;
+        ctx.fill();
+
+        // Inner bright circle with strong glow
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = ASSET_COLOR;
+        ctx.beginPath();
+        ctx.arc(pointerX, pointerY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = ASSET_COLOR;
+        ctx.fill();
+
+        // White hot center
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#fff';
+        ctx.beginPath();
+        ctx.arc(pointerX, pointerY, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+
+        ctx.shadowBlur = 0; // Reset
     }
 
     // C. Draw "NOW" Line
-    const { x: nowX } = worldToScreen(now, currentPrice, width, height);
-    ctx.beginPath();
-    ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = '#fff';
-    ctx.moveTo(nowX, 0);
-    ctx.lineTo(nowX, height);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    // const { x: nowX } = worldToScreen(now, currentPrice, width, height);
+    // ctx.beginPath();
+    // ctx.setLineDash([5, 5]);
+    // ctx.strokeStyle = '#fff';
+    // ctx.moveTo(nowX, 0);
+    // ctx.lineTo(nowX, height);
+    // ctx.stroke();
+    // ctx.setLineDash([]);
 
-    // D. Draw Blocks (The Bets) - FIT TO GRID CELLS
-    blocks.forEach(block => {
-        // Calculate which grid cell this block belongs to
-        const { x: blockCenterX, y: blockCenterY } = worldToScreen(block.expiryTime, block.targetPrice, width, height);
-
-        // Find the grid cell boundaries for this block
-        const blockGridTime = Math.floor(block.expiryTime / TIME_STEP) * TIME_STEP;
-        const blockGridPrice = Math.floor((block.targetPrice - firstGridPrice) / priceStep) * priceStep + firstGridPrice;
-
-        // Get cell corners to determine size
-        const { x: cellX1, y: cellY1 } = worldToScreen(blockGridTime, blockGridPrice + priceStep, width, height);
-        const { x: cellX2, y: cellY2 } = worldToScreen(blockGridTime + TIME_STEP, blockGridPrice, width, height);
-
-        // Cell dimensions with padding
-        const cellWidth = cellX2 - cellX1;
-        const cellHeight = cellY2 - cellY1;
-        const padding = 4; // Padding from cell edges
-
-        // Block dimensions fit within cell
-        const blockW = Math.max(cellWidth - padding * 2, 40);
-        const blockH = Math.max(cellHeight - padding * 2, 30);
-
-        // Check if this block just changed status and trigger animation
-        if (block.status === 'HIT' && !processedBlocksRef.current.has(block.id + '_hit')) {
-            processedBlocksRef.current.add(block.id + '_hit');
-            createBurstParticles(blockCenterX, blockCenterY);
-        } else if (block.status === 'MISSED' && !processedBlocksRef.current.has(block.id + '_miss')) {
-            processedBlocksRef.current.add(block.id + '_miss');
-            createShatterParticles(blockCenterX, blockCenterY, blockW, blockH);
-        }
-
-        // Collision / Status Color
-        let color = '#ffffff';
-        let glow = 0;
-        let shouldDraw = true;
-
-        if (block.status === 'HIT') {
-            color = '#4ade80'; // Green
-            glow = 25;
-            // Fade out the block after animation starts
-            const timeSinceHit = block.hitTime ? Date.now() - block.hitTime : 500;
-            if (timeSinceHit > 500) {
-              ctx.globalAlpha = Math.max(0, 1 - (timeSinceHit - 500) / 1000);
-              if (ctx.globalAlpha <= 0) shouldDraw = false;
-            }
-        } else if (block.status === 'MISSED') {
-            color = '#ef4444'; // Red
-            // Quick fade out for missed blocks
-            ctx.globalAlpha = 0.3;
-        } else {
-            color = ASSET_COLOR; // Pending
-            glow = 10;
-        }
-
-        if (shouldDraw) {
-          // 1. Draw Glow/Shadow
-          ctx.shadowBlur = glow;
-          ctx.shadowColor = color;
-          ctx.fillStyle = 'rgba(0,0,0,0.6)'; // Dark glass background
-          ctx.fillRect(blockCenterX - blockW/2, blockCenterY - blockH/2, blockW, blockH);
-
-          // 2. Draw Border
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(blockCenterX - blockW/2, blockCenterY - blockH/2, blockW, blockH);
-
-          // 3. Draw Text - TWO LINES (Amount + Multiplier)
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#fff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          
-          // Calculate font size based on cell size
-          const baseFontSize = Math.min(blockH / 4, 11);
-          const multiplierFontSize = Math.min(blockH / 3.5, 13);
-          
-          // Bet amount on top line
-          ctx.font = `bold ${baseFontSize}px sans-serif`;
-          ctx.fillText(`$${block.amount}`, blockCenterX, blockCenterY - blockH * 0.15);
-          
-          // Multiplier on bottom line
-          ctx.font = `bold ${multiplierFontSize}px sans-serif`;
-          ctx.fillText(`${block.multiplier.toFixed(2)}x`, blockCenterX, blockCenterY + blockH * 0.15);
-        }
-
-        ctx.globalAlpha = 1.0;
-    });
+    // D. OLD SEPARATE BLOCK DRAWING CODE (COMMENTED - now blocks are drawn within grid cells above)
+    // blocks.forEach(block => {
+    //     // Calculate which grid cell this block belongs to
+    //     const { x: blockCenterX, y: blockCenterY } = worldToScreen(block.expiryTime, block.targetPrice, width, height);
+    //
+    //     // Find the grid cell boundaries for this block
+    //     const blockGridTime = Math.floor(block.expiryTime / TIME_STEP) * TIME_STEP;
+    //     const blockGridPrice = Math.floor((block.targetPrice - firstGridPrice) / priceStep) * priceStep + firstGridPrice;
+    //
+    //     // Get cell corners to determine size
+    //     const { x: cellX1, y: cellY1 } = worldToScreen(blockGridTime, blockGridPrice + priceStep, width, height);
+    //     const { x: cellX2, y: cellY2 } = worldToScreen(blockGridTime + TIME_STEP, blockGridPrice, width, height);
+    //
+    //     // Cell dimensions with padding
+    //     const cellWidth = cellX2 - cellX1;
+    //     const cellHeight = cellY2 - cellY1;
+    //     const padding = 4; // Padding from cell edges
+    //
+    //     // Block dimensions fit within cell
+    //     const blockW = Math.max(cellWidth - padding * 2, 40);
+    //     const blockH = Math.max(cellHeight - padding * 2, 30);
+    //
+    //     // Check if this block just changed status and trigger animation
+    //     if (block.status === 'HIT' && !processedBlocksRef.current.has(block.id + '_hit')) {
+    //         processedBlocksRef.current.add(block.id + '_hit');
+    //         createBurstParticles(blockCenterX, blockCenterY);
+    //     } else if (block.status === 'MISSED' && !processedBlocksRef.current.has(block.id + '_miss')) {
+    //         processedBlocksRef.current.add(block.id + '_miss');
+    //         createShatterParticles(blockCenterX, blockCenterY, blockW, blockH);
+    //     }
+    //
+    //     // Collision / Status Color
+    //     let color = '#ffffff';
+    //     let glow = 0;
+    //     let shouldDraw = true;
+    //
+    //     if (block.status === 'HIT') {
+    //         color = '#4ade80'; // Green
+    //         glow = 25;
+    //         // Fade out the block after animation starts
+    //         const timeSinceHit = block.hitTime ? Date.now() - block.hitTime : 500;
+    //         if (timeSinceHit > 500) {
+    //           ctx.globalAlpha = Math.max(0, 1 - (timeSinceHit - 500) / 1000);
+    //           if (ctx.globalAlpha <= 0) shouldDraw = false;
+    //         }
+    //     } else if (block.status === 'MISSED') {
+    //         color = '#ef4444'; // Red
+    //         // Quick fade out for missed blocks
+    //         ctx.globalAlpha = 0.3;
+    //     } else {
+    //         color = ASSET_COLOR; // Pending
+    //         glow = 10;
+    //     }
+    //
+    //     if (shouldDraw) {
+    //       // 1. Draw Glow/Shadow
+    //       ctx.shadowBlur = glow;
+    //       ctx.shadowColor = color;
+    //       ctx.fillStyle = 'rgba(0,0,0,0.6)'; // Dark glass background
+    //       ctx.fillRect(blockCenterX - blockW/2, blockCenterY - blockH/2, blockW, blockH);
+    //
+    //       // 2. Draw Border
+    //       ctx.strokeStyle = color;
+    //       ctx.lineWidth = 2;
+    //       ctx.strokeRect(blockCenterX - blockW/2, blockCenterY - blockH/2, blockW, blockH);
+    //
+    //       // 3. Draw Text - TWO LINES (Amount + Multiplier)
+    //       ctx.shadowBlur = 0;
+    //       ctx.fillStyle = '#fff';
+    //       ctx.textAlign = 'center';
+    //       ctx.textBaseline = 'middle';
+    //
+    //       // Calculate font size based on cell size
+    //       const baseFontSize = Math.min(blockH / 4, 11);
+    //       const multiplierFontSize = Math.min(blockH / 3.5, 13);
+    //
+    //       // Bet amount on top line
+    //       ctx.font = `bold ${baseFontSize}px sans-serif`;
+    //       ctx.fillText(`$${block.amount}`, blockCenterX, blockCenterY - blockH * 0.15);
+    //
+    //       // Multiplier on bottom line
+    //       ctx.font = `bold ${multiplierFontSize}px sans-serif`;
+    //       ctx.fillText(`${block.multiplier.toFixed(2)}x`, blockCenterX, blockCenterY + blockH * 0.15);
+    //     }
+    //
+    //     ctx.globalAlpha = 1.0;
+    // });
 
     // E. Draw Particles (animations)
     updateParticles(ctx);
