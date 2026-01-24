@@ -618,8 +618,12 @@ export default function GameCanvas({
       ctx.fill();
     }
 
-    // B. Draw Price Line with Gradient
+    // B. Draw Price Line with Gradient (smooth animation)
     if (priceHistory.length > 1) {
+        // Extend the price line smoothly to the current time
+        const extendedTime = now; // Extend line to current moment for smooth movement
+        const extendedPrice = currentPrice; // Use current price for the extended point
+
         // Gradient Fill
         const gradient = ctx.createLinearGradient(0, 0, 0, height);
         gradient.addColorStop(0, `${ASSET_COLOR}80`); // 50% opacity
@@ -631,33 +635,48 @@ export default function GameCanvas({
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         });
-        
+        // Extend to current time for smooth animation
+        const { x: extX, y: extY } = worldToScreen(extendedTime, extendedPrice, width, height);
+        ctx.lineTo(extX, extY);
+
         // Close the path for filling
-        const lastPt = priceHistory[priceHistory.length - 1];
-        const { x: lastX } = worldToScreen(lastPt.time, lastPt.price, width, height);
-        ctx.lineTo(lastX, height);
+        ctx.lineTo(extX, height);
         ctx.lineTo(worldToScreen(priceHistory[0].time, 0, width, height).x, height);
         ctx.closePath();
         ctx.fillStyle = gradient;
         ctx.fill();
 
-        // Stroke Line on top
+        // Stroke Line on top (with smooth curve)
         ctx.beginPath();
         ctx.strokeStyle = ASSET_COLOR;
-        ctx.lineWidth = 2;
-        ctx.shadowBlur = 10;
+        ctx.lineWidth = 2.5;
+        ctx.shadowBlur = 12;
         ctx.shadowColor = ASSET_COLOR;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Draw smooth curve through price points
         priceHistory.forEach((pt, i) => {
             const { x, y } = worldToScreen(pt.time, pt.price, width, height);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                // Use quadratic curve for smoother lines
+                const prevPt = priceHistory[i - 1];
+                const { x: prevX, y: prevY } = worldToScreen(prevPt.time, prevPt.price, width, height);
+                const cpX = (prevX + x) / 2;
+                const cpY = (prevY + y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, cpX, cpY);
+            }
         });
+        // Smooth extend to current position
+        ctx.lineTo(extX, extY);
         ctx.stroke();
         ctx.shadowBlur = 0; // Reset glow
 
-        // Draw bright glowing pointer at the end of the price line (current price position)
-        const lastPoint = priceHistory[priceHistory.length - 1];
-        const { x: pointerX, y: pointerY } = worldToScreen(lastPoint.time, lastPoint.price, width, height);
+        // Draw bright glowing pointer at the CURRENT time position (smooth animation)
+        const pointerX = extX;
+        const pointerY = extY;
 
         // Outer glow ring
         ctx.beginPath();
@@ -806,7 +825,8 @@ export default function GameCanvas({
 
   }, [currentPrice, priceHistory, blocks, viewport, visibleBounds, mousePos, selectedAsset, animationTick]);
 
-  // --- ANIMATION LOOP for particles ---
+  // --- SMOOTH ANIMATION LOOP (60fps) ---
+  // Always run animation for smooth chart movement
   useEffect(() => {
     let animationId: number;
     let isRunning = true;
@@ -814,10 +834,8 @@ export default function GameCanvas({
     const animate = () => {
       if (!isRunning) return;
 
-      if (particlesRef.current.length > 0) {
-        // Force re-render to update particle positions
-        setAnimationTick(t => t + 1);
-      }
+      // Always trigger re-render for smooth time-based animation
+      setAnimationTick(t => t + 1);
 
       animationId = requestAnimationFrame(animate);
     };
