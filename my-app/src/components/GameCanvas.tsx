@@ -213,10 +213,15 @@ export default function GameCanvas({
 
 
   // --- 3. INTERACTION HANDLERS ---
-  
+
+  // Right-click starts dragging
   const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    // Right-click (button 2) for panning
+    if (e.button === 2) {
+      e.preventDefault();
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -224,39 +229,43 @@ export default function GameCanvas({
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    
+
     setMousePos({ x, y });
 
-    if (isDragging && dragStart) {
+    // Check if right mouse button is still held (buttons bitmask: 2 = right button)
+    if (isDragging && dragStart && (e.buttons & 2)) {
         const dx = e.clientX - dragStart.x;
         const dy = e.clientY - dragStart.y;
-        
+
         // Pass Delta to Engine
         onPan(dx, dy, rect.width, rect.height);
-        
+
         // Reset start so we get continuous deltas
         setDragStart({ x: e.clientX, y: e.clientY });
+    } else if (isDragging && !(e.buttons & 2)) {
+        // Right button was released outside or we missed the mouseup
+        setIsDragging(false);
+        setDragStart(null);
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    if (isDragging && dragStart) {
-        // Calculate total distance moved to distinguish "Drag" vs "Click"
-        // (Simplified here: we just assume if we were dragging, we stop)
+    if (e.button === 2) {
         setIsDragging(false);
         setDragStart(null);
-        
-        // If it was a very short drag (basically a click), place bet
-        // Ideally, you track 'totalMovement' distance state
     }
   };
 
+  // Left-click places bet
   const handleClick = (e: React.MouseEvent) => {
-    // Only place bet if we weren't actively dragging
-    // (You might need a small distance threshold check here)
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     onPlaceBet(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+  };
+
+  // Prevent context menu on right-click
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
   };
 
   return (
@@ -268,6 +277,7 @@ export default function GameCanvas({
         onMouseUp={handleMouseUp}
         onMouseLeave={() => { setIsDragging(false); setMousePos(null); }}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
     >
         <canvas ref={canvasRef} className="block w-full h-full" />
     </div>
