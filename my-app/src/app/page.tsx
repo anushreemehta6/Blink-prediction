@@ -248,8 +248,7 @@ export default function HomePage() {
   // Asset-specific colors for gamified feel
   const assetColors: Record<AssetSymbol, { primary: string; glow: string; bg: string }> = {
     ETH: { primary: '#627EEA', glow: 'rgba(98, 126, 234, 0.5)', bg: 'rgba(98, 126, 234, 0.1)' },
-    BTC: { primary: '#F7931A', glow: 'rgba(247, 147, 26, 0.5)', bg: 'rgba(247, 147, 26, 0.1)' },
-    SOL: { primary: '#9945FF', glow: 'rgba(153, 69, 255, 0.5)', bg: 'rgba(153, 69, 255, 0.1)' },
+
     BNB: { primary: '#F0B90B', glow: 'rgba(240, 185, 11, 0.5)', bg: 'rgba(240, 185, 11, 0.1)' },
   };
 

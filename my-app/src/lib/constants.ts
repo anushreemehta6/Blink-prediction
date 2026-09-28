@@ -3,8 +3,7 @@ import { type Address } from 'viem';
 // Official Pyth Price IDs (Standard for Hermes V2)
 export const PYTH_PRICE_IDS = {
   ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-  BTC: "e62df6c8b4a941d4d872153919f0485733924556a046f0b21ea70b03610c093c",
-  SOL: "ef0d8b6fda2ce353c7d57646d3f2c97a53071859cf9d2939a98f02ca3938d17a",
+
   BNB: "2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f",
 } as const;
 
